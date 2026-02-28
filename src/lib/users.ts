@@ -5,7 +5,7 @@ export const USERS = [
   { id: 4, name: "Jayden", email: "jayden@example.com", color: "#F59E0B" }, // amber
   { id: 5, name: "Calvin", email: "calvin@example.com", color: "#8B5CF6" }, // purple
   { id: 6, name: "Henry", email: "henry@example.com", color: "#EC4899" },   // pink
-  { id: 7, name: "Leon", email: "leon@example.com", color: "#06B6D4" },     // cyan
+  { id: 7, name: "Leon", email: "leonlin773@gmail.com", color: "#06B6D4" },     // cyan
 ] as const;
 
 export type UserEntry = (typeof USERS)[number];

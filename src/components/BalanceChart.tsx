@@ -161,10 +161,6 @@ export default function BalanceChart({
         </LineChart>
       </ResponsiveContainer>
 
-      {/* Zero line note */}
-      <p className="text-xs text-muted text-center mt-2">
-        Above $0 = pool owes you &middot; Below $0 = you owe the pool
-      </p>
     </div>
   );
 }

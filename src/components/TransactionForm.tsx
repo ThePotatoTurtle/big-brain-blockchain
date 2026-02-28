@@ -25,7 +25,7 @@ export default function TransactionForm() {
   const [success, setSuccess] = useState("");
 
   // Expense fields
-  const [payerId, setPayerId] = useState<number>(USERS[0].id);
+  const [payerId, setPayerId] = useState<number>(0);
   const [totalAmount, setTotalAmount] = useState("");
   const [shares, setShares] = useState<ShareEntry[]>(
     USERS.map((u) => ({ userId: u.id, included: false, amount: "" }))
@@ -82,6 +82,7 @@ export default function TransactionForm() {
   const canSubmitExpense =
     item.trim() &&
     date &&
+    payerId > 0 &&
     totalCents > 0 &&
     includedCount > 0 &&
     sharesMatch;
@@ -239,7 +240,7 @@ export default function TransactionForm() {
               type="text"
               value={item}
               onChange={(e) => setItem(e.target.value)}
-              placeholder={type === "settlement" ? "Settlement" : "Dinner, groceries..."}
+              placeholder={type === "settlement" ? "Cash, e-Transfer..." : "Dinner, movies..."}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
             />
           </div>
@@ -268,6 +269,7 @@ export default function TransactionForm() {
                 onChange={(e) => setPayerId(Number(e.target.value))}
                 className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
               >
+                <option value={0} disabled>Select...</option>
                 {USERS.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
