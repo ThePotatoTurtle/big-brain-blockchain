@@ -109,8 +109,8 @@ export default function BalanceChart({
       }
     }
   }
-  // Round domain to nearest $50 (5000 cents)
-  const step = 5000;
+  // Round domain to nearest $100 (10000 cents)
+  const step = 10000;
   const yDomain: [number, number] = [
     Math.floor(yMin / step) * step,
     Math.ceil(yMax / step) * step,
@@ -173,10 +173,14 @@ export default function BalanceChart({
             stroke="#94A3B8"
             fontSize={11}
             domain={yDomain}
-            ticks={Array.from(
-              { length: (yDomain[1] - yDomain[0]) / step + 1 },
-              (_, i) => yDomain[0] + i * step
-            )}
+            ticks={(() => {
+              const t = Array.from(
+                { length: (yDomain[1] - yDomain[0]) / step + 1 },
+                (_, i) => yDomain[0] + i * step
+              );
+              if (!t.includes(0)) t.push(0);
+              return t.sort((a, b) => a - b);
+            })()}
             tickFormatter={(val) => formatCents(val)}
           />
           <Tooltip
