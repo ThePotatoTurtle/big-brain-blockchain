@@ -35,7 +35,11 @@ function CustomTooltip({
 
   return (
     <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
-      <p className="text-xs text-muted mb-2">{label}</p>
+      <p className="text-xs text-muted mb-2">
+        {typeof label === "number"
+          ? new Date(label).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+          : label}
+      </p>
       <div className="space-y-1">
         {sorted.map((entry) => (
           <div key={entry.name} className="flex items-center gap-2 text-xs">
@@ -109,6 +113,12 @@ export default function BalanceChart({
   const yPad = yRange * 0.1;
   const yDomain: [number, number] = [Math.floor(yMin - yPad), Math.ceil(yMax + yPad)];
 
+  // Add timestamps for proportional X-axis scaling
+  const chartData = data.map((point) => ({
+    ...point,
+    _ts: new Date(point.date + "T00:00:00").getTime(),
+  }));
+
   return (
     <div className="bg-card rounded-xl p-4 md:p-6">
       {/* Custom Legend */}
@@ -139,14 +149,17 @@ export default function BalanceChart({
 
       {/* Chart */}
       <ResponsiveContainer width="100%" height={400}>
-        <LineChart data={data}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
           <XAxis
-            dataKey="date"
+            dataKey="_ts"
+            type="number"
+            scale="time"
+            domain={["dataMin", "dataMax"]}
             stroke="#94A3B8"
             fontSize={11}
             tickFormatter={(val) => {
-              const d = new Date(val + "T00:00:00");
+              const d = new Date(val);
               return d.toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
