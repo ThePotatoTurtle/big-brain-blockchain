@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TransactionType {
+  expense
+  settlement
+}
+
+enum TransactionStatus {
+  pending
+  confirmed
+}
+
+model User {
+  id               Int               @id @default(autoincrement())
+  name             String            @unique
+  email            String?
+  transactionLines TransactionLine[]
+  createdTransactions Transaction[]   @relation("CreatedBy")
+}
+
+model Transaction {
+  id               Int               @id @default(autoincrement())
+  date             DateTime          @db.Date
+  type             TransactionType
+  item             String
+  notes            String?
+  totalAmountCents Int?              // Original total in cents (for display)
+  createdById      Int
+  createdBy   User              @relation("CreatedBy", fields: [createdById], references: [id])
+  status      TransactionStatus @default(confirmed)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  lines       TransactionLine[]
+  attachments Attachment[]
+}
+
+model TransactionLine {
+  id            Int         @id @default(autoincrement())
+  transactionId Int
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  userId        Int
+  user          User        @relation(fields: [userId], references: [id])
+  amount        Int         // cents: positive = credit (paid), negative = debit (owes)
+
+  @@index([transactionId])
+  @@index([userId])
+}
+
+model Attachment {
+  id            Int         @id @default(autoincrement())
+  transactionId Int
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  fileUrl       String
+  fileName      String
+  uploadedAt    DateTime    @default(now())
+
+  @@index([transactionId])
+}
