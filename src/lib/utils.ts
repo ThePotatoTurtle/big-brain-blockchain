@@ -1,9 +1,29 @@
 /**
+ * Evaluate a simple math expression with + and -.
+ * "12.50+8.99-3" -> 18.49
+ * Trailing operators ignored: "10+" -> 10
+ */
+export function evaluateExpression(expr: string): number {
+  const trimmed = expr.trim();
+  if (!trimmed) return NaN;
+  // Split into tokens: numbers and +/- operators
+  const tokens = trimmed.match(/[+-]?[^+-]+/g);
+  if (!tokens) return NaN;
+  let sum = 0;
+  for (const token of tokens) {
+    const val = parseFloat(token.trim());
+    if (isNaN(val)) return NaN;
+    sum += val;
+  }
+  return sum;
+}
+
+/**
  * Convert a dollar amount (string or number) to integer cents.
- * "12.50" -> 1250, 12.5 -> 1250
+ * Supports simple math: "12.50+8.99" -> 2149
  */
 export function dollarsToCents(dollars: string | number): number {
-  const num = typeof dollars === "string" ? parseFloat(dollars) : dollars;
+  const num = typeof dollars === "string" ? evaluateExpression(dollars) : dollars;
   if (isNaN(num)) return 0;
   return Math.round(num * 100);
 }
