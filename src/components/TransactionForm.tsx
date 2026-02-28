@@ -234,13 +234,13 @@ export default function TransactionForm() {
       {/* Common Fields */}
       <div className="space-y-3 mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
+          <div className="min-w-0">
             <label className="block text-xs text-muted mb-1">Date</label>
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="w-full max-w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent box-border"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
             />
           </div>
           <div>
