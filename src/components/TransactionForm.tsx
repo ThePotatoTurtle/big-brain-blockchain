@@ -228,7 +228,7 @@ export default function TransactionForm() {
 
       {/* Common Fields */}
       <div className="space-y-3 mb-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-muted mb-1">Date</label>
             <input
@@ -265,13 +265,13 @@ export default function TransactionForm() {
       {/* Expense Fields */}
       {type === "expense" && (
         <div className="space-y-3 mb-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-muted mb-1">Paid by</label>
               <select
                 value={payerId}
                 onChange={(e) => setPayerId(Number(e.target.value))}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${payerId === 0 ? "text-muted" : ""}`}
               >
                 <option value={0} disabled>Select...</option>
                 {USERS.map((u) => (
@@ -382,7 +382,7 @@ export default function TransactionForm() {
               <button
                 onClick={handleSplitEvenly}
                 disabled={includedCount === 0 || totalCents <= 0}
-                className="text-xs font-medium text-accent hover:underline disabled:text-muted disabled:no-underline"
+                className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 active:bg-accent/30 transition-colors disabled:text-muted disabled:bg-background disabled:opacity-50"
               >
                 Split evenly ({includedCount})
               </button>
@@ -404,15 +404,15 @@ export default function TransactionForm() {
       {/* Settlement Fields */}
       {type === "settlement" && (
         <div className="space-y-3 mb-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-muted mb-1">
-                From (who paid)
+                From
               </label>
               <select
                 value={fromUserId}
                 onChange={(e) => setFromUserId(Number(e.target.value))}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${fromUserId === 0 ? "text-muted" : ""}`}
               >
                 <option value={0} disabled>Select...</option>
                 {USERS.map((u) => (
@@ -424,12 +424,12 @@ export default function TransactionForm() {
             </div>
             <div>
               <label className="block text-xs text-muted mb-1">
-                To (who received)
+                To
               </label>
               <select
                 value={toUserId}
                 onChange={(e) => setToUserId(Number(e.target.value))}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${toUserId === 0 ? "text-muted" : ""}`}
               >
                 <option value={0} disabled>Select...</option>
                 {USERS.filter((u) => u.id !== fromUserId).map((u) => (
