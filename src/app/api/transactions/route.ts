@@ -114,11 +114,28 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      lines = computeExpenseLines(
-        body.payerId,
-        body.totalAmountCents,
-        body.shares
-      );
+      // Validate payers sum matches total
+      const payersSum = body.payers.reduce((s, p) => s + p.amountCents, 0);
+      if (payersSum !== body.totalAmountCents) {
+        return NextResponse.json(
+          {
+            error: `Payers sum (${payersSum}) does not match total (${body.totalAmountCents})`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Validate each payer has a positive amount
+      for (const p of body.payers) {
+        if (p.amountCents <= 0) {
+          return NextResponse.json(
+            { error: "Each payer must have a positive amount" },
+            { status: 400 }
+          );
+        }
+      }
+
+      lines = computeExpenseLines(body.payers, body.shares);
     } else if (body.type === "settlement") {
       if (body.fromUserId === body.toUserId) {
         return NextResponse.json(

@@ -11,9 +11,8 @@ export default function TransactionCard({
 }) {
   const isSettlement = t.type === "settlement";
 
-  // For expenses: find the payer (positive amount line, or the largest)
-  const payerLine = t.lines.find((l) => l.amount > 0);
-  const debitLines = t.lines.filter((l) => l.amount < 0);
+  // For expenses: find all payers (positive amount lines)
+  const payerLines = t.lines.filter((l) => l.amount > 0);
 
   // For settlements
   const fromLine = isSettlement ? t.lines.find((l) => l.amount > 0) : null;
@@ -59,14 +58,21 @@ export default function TransactionCard({
       {/* Expense display */}
       {!isSettlement && (
         <div className="space-y-1.5">
-          {payerLine && (
+          {payerLines.length > 0 && (
             <div className="text-xs text-muted mb-1">
-              <span style={{ color: payerLine.color }} className="font-medium">
-                {payerLine.userName}
-              </span>{" "}
+              {payerLines.map((l, i) => (
+                <span key={l.userId}>
+                  {i > 0 && " & "}
+                  <span style={{ color: l.color }} className="font-medium">
+                    {l.userName}
+                  </span>
+                </span>
+              ))}{" "}
               paid{" "}
               <span className="font-mono">
-                {centsToDisplay(t.totalAmountCents ?? payerLine.amount)}
+                {centsToDisplay(
+                  t.totalAmountCents ?? payerLines.reduce((s, l) => s + l.amount, 0)
+                )}
               </span>
             </div>
           )}

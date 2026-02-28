@@ -4,37 +4,33 @@ export interface TransactionLineInput {
 }
 
 /**
- * Compute transaction lines for an expense.
+ * Compute transaction lines for an expense (supports multiple payers).
  *
- * The payer paid `totalPaidCents` IRL. Each person in `shares` owes their share.
- * The payer may also be in the shares list (they owe their own portion).
+ * Each payer paid some amount IRL. Each person in `shares` owes their share.
+ * A payer may also be in the shares list (they owe their own portion).
  *
- * Lines:
- * - Payer gets a net credit: totalPaidCents - (their share, if in split)
- * - Each non-payer gets a debit: -(their share)
- *
- * Sum of all lines = 0 (enforced by construction).
+ * For each person, net = (what they paid) - (what they owe).
+ * Sum of all lines = 0 (enforced by construction when payers sum = shares sum).
  */
 export function computeExpenseLines(
-  payerId: number,
-  totalPaidCents: number,
+  payers: { userId: number; amountCents: number }[],
   shares: { userId: number; amountCents: number }[]
 ): TransactionLineInput[] {
-  const lines: TransactionLineInput[] = [];
-  let payerShareCents = 0;
+  const netMap = new Map<number, number>();
 
-  for (const share of shares) {
-    if (share.userId === payerId) {
-      payerShareCents = share.amountCents;
-    } else {
-      lines.push({ userId: share.userId, amount: -share.amountCents });
-    }
+  for (const payer of payers) {
+    netMap.set(payer.userId, (netMap.get(payer.userId) ?? 0) + payer.amountCents);
   }
 
-  // Payer's net: what they paid minus what they owe
-  const payerNet = totalPaidCents - payerShareCents;
-  if (payerNet !== 0) {
-    lines.push({ userId: payerId, amount: payerNet });
+  for (const share of shares) {
+    netMap.set(share.userId, (netMap.get(share.userId) ?? 0) - share.amountCents);
+  }
+
+  const lines: TransactionLineInput[] = [];
+  for (const [userId, amount] of netMap) {
+    if (amount !== 0) {
+      lines.push({ userId, amount });
+    }
   }
 
   return lines;

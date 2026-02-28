@@ -43,7 +43,7 @@ export interface CreateExpenseRequest {
   item: string;
   notes?: string;
   createdById: number;
-  payerId: number;
+  payers: { userId: number; amountCents: number }[];
   totalAmountCents: number;
   shares: { userId: number; amountCents: number }[];
   attachmentUrls?: { fileUrl: string; fileName: string }[];

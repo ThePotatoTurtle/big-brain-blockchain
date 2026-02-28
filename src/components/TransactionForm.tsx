@@ -14,6 +14,14 @@ interface ShareEntry {
   amount: string; // dollar string for input
 }
 
+interface PayerEntry {
+  id: string;
+  userId: number;
+  amount: string; // dollar string for input
+}
+
+let payerIdCounter = 0;
+
 export default function TransactionForm() {
   const router = useRouter();
   const [type, setType] = useState<TransactionType>("expense");
@@ -24,8 +32,12 @@ export default function TransactionForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Expense fields
-  const [payerId, setPayerId] = useState<number>(0);
+  // Expense fields — multi-payer support
+  const [payers, setPayers] = useState<PayerEntry[]>([
+    { id: `payer-${payerIdCounter++}`, userId: 0, amount: "" },
+  ]);
+  const isMultiPayer = payers.length > 1;
+  const primaryPayerId = payers[0]?.userId ?? 0;
   const [totalAmount, setTotalAmount] = useState("");
   const [shares, setShares] = useState<ShareEntry[]>(
     USERS.map((u) => ({ userId: u.id, included: false, amount: "" }))
@@ -72,8 +84,8 @@ export default function TransactionForm() {
     if (included.length === 0) return;
 
     const splitAmounts = splitEvenly(totalCents, included.length);
-    // Give remainder cent(s) to the payer instead of first person
-    const payerIdx = included.findIndex((s) => s.userId === payerId);
+    // Give remainder cent(s) to the first payer instead of first person
+    const payerIdx = included.findIndex((s) => s.userId === primaryPayerId);
     if (payerIdx > 0) {
       [splitAmounts[0], splitAmounts[payerIdx]] = [splitAmounts[payerIdx], splitAmounts[0]];
     }
@@ -103,8 +115,8 @@ export default function TransactionForm() {
     const rawShares = pretaxCents.map((pc) => Math.floor((pc / pretaxTotal) * totalCents));
     let remainderCents = totalCents - rawShares.reduce((sum, s) => sum + s, 0);
 
-    // Give remainder cents to payer first
-    const payerIncludedIdx = included.findIndex((s) => s.userId === payerId);
+    // Give remainder cents to first payer first
+    const payerIncludedIdx = included.findIndex((s) => s.userId === primaryPayerId);
     if (payerIncludedIdx >= 0 && remainderCents > 0) {
       const give = Math.min(remainderCents, remainderCents);
       rawShares[payerIncludedIdx] += give;
@@ -138,11 +150,23 @@ export default function TransactionForm() {
     .reduce((sum, s) => sum + dollarsToCents(pretaxAmounts[s.userId] || "0"), 0);
   const canCalculateRestaurant = restaurantMode && totalCents > 0 && pretaxTotal > 0 && includedCount > 0;
 
-  const hasOtherThanPayer = shares.some((s) => s.included && s.userId !== payerId);
+  // Multi-payer validation
+  const payerUserIds = new Set(payers.map((p) => p.userId));
+  const allPayersSelected = payers.every((p) => p.userId > 0);
+  const noDuplicatePayers =
+    payerUserIds.size === payers.length || payers.some((p) => p.userId === 0);
+  const payersSumCents = isMultiPayer
+    ? payers.reduce((sum, p) => sum + dollarsToCents(p.amount), 0)
+    : totalCents;
+  const payersMatch = isMultiPayer ? totalCents > 0 && payersSumCents === totalCents : true;
+
+  const hasOtherThanPayer = shares.some((s) => s.included && !payerUserIds.has(s.userId));
   const canSubmitExpense =
     item.trim() &&
     date &&
-    payerId > 0 &&
+    allPayersSelected &&
+    noDuplicatePayers &&
+    payersMatch &&
     totalCents > 0 &&
     includedCount > 0 &&
     hasOtherThanPayer &&
@@ -162,6 +186,7 @@ export default function TransactionForm() {
     setItem("");
     setNotes("");
     setTotalAmount("");
+    setPayers([{ id: `payer-${payerIdCounter++}`, userId: 0, amount: "" }]);
     setShares(USERS.map((u) => ({ userId: u.id, included: false, amount: "" })));
     setPretaxAmounts({});
     setRestaurantMode(false);
@@ -194,13 +219,20 @@ export default function TransactionForm() {
       let body: CreateTransactionRequest;
 
       if (type === "expense") {
+        const payersPayload = isMultiPayer
+          ? payers.map((p) => ({
+              userId: p.userId,
+              amountCents: dollarsToCents(p.amount),
+            }))
+          : [{ userId: primaryPayerId, amountCents: totalCents }];
+
         body = {
           type: "expense",
           date,
           item: item.trim(),
           notes: notes.trim() || undefined,
-          createdById: payerId,
-          payerId,
+          createdById: payers[0].userId,
+          payers: payersPayload,
           totalAmountCents: totalCents,
           shares: shares
             .filter((s) => s.included)
@@ -326,41 +358,162 @@ export default function TransactionForm() {
       {/* Expense Fields */}
       {type === "expense" && (
         <div className="space-y-3 mb-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-muted mb-1">Paid by</label>
-              <select
-                value={payerId}
-                onChange={(e) => setPayerId(Number(e.target.value))}
-                className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${payerId === 0 ? "text-muted" : ""}`}
-              >
-                <option value={0} disabled>Select...</option>
-                {USERS.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-muted mb-1">
-                Total amount
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">
-                  $
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={totalAmount}
-                  onChange={(e) => setTotalAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
-                />
+          {/* Paid by + Total — single payer mode */}
+          {!isMultiPayer && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-muted mb-1">Paid by</label>
+                <select
+                  value={primaryPayerId}
+                  onChange={(e) =>
+                    setPayers((prev) => [{ ...prev[0], userId: Number(e.target.value) }])
+                  }
+                  className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${primaryPayerId === 0 ? "text-muted" : ""}`}
+                >
+                  <option value={0} disabled>Select...</option>
+                  {USERS.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() =>
+                    setPayers((prev) => [
+                      ...prev,
+                      { id: `payer-${payerIdCounter++}`, userId: 0, amount: "" },
+                    ])
+                  }
+                  className="mt-1.5 text-xs text-accent hover:text-accent/80 transition-colors"
+                >
+                  + Add payer
+                </button>
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Total amount
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">
+                    $
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={totalAmount}
+                    onChange={(e) => setTotalAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* Multi-payer mode */}
+          {isMultiPayer && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-muted mb-1">Total amount</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">
+                    $
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={totalAmount}
+                    onChange={(e) => setTotalAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-muted mb-1">Paid by</label>
+                <div className="space-y-2">
+                  {payers.map((p, i) => {
+                    const selectedByOthers = new Set(
+                      payers.filter((o) => o.id !== p.id && o.userId > 0).map((o) => o.userId)
+                    );
+                    return (
+                      <div key={p.id} className="flex items-center gap-2">
+                        <select
+                          value={p.userId}
+                          onChange={(e) =>
+                            setPayers((prev) =>
+                              prev.map((pp) =>
+                                pp.id === p.id ? { ...pp, userId: Number(e.target.value) } : pp
+                              )
+                            )
+                          }
+                          className={`flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${p.userId === 0 ? "text-muted" : ""}`}
+                        >
+                          <option value={0} disabled>Select...</option>
+                          {USERS.map((u) => (
+                            <option key={u.id} value={u.id} disabled={selectedByOthers.has(u.id)}>
+                              {u.name}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="relative flex-1">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted text-xs">
+                            $
+                          </span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={p.amount}
+                            onChange={(e) =>
+                              setPayers((prev) =>
+                                prev.map((pp) =>
+                                  pp.id === p.id ? { ...pp, amount: e.target.value } : pp
+                                )
+                              )
+                            }
+                            placeholder="0.00"
+                            className="w-full bg-background border border-border rounded-lg pl-5 pr-2 py-2 text-sm focus:outline-none focus:border-accent"
+                          />
+                        </div>
+                        <button
+                          onClick={() =>
+                            setPayers((prev) => prev.filter((pp) => pp.id !== p.id))
+                          }
+                          className="text-muted hover:text-negative text-lg leading-none px-1"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <button
+                    onClick={() =>
+                      setPayers((prev) => [
+                        ...prev,
+                        { id: `payer-${payerIdCounter++}`, userId: 0, amount: "" },
+                      ])
+                    }
+                    className="text-xs text-accent hover:text-accent/80 transition-colors"
+                  >
+                    + Add payer
+                  </button>
+                  {totalCents > 0 && (
+                    <span
+                      className={`text-xs font-mono ${
+                        payersMatch ? "text-positive" : "text-negative"
+                      }`}
+                    >
+                      {centsToDisplay(payersSumCents)} / {centsToDisplay(totalCents)}{" "}
+                      {payersMatch ? "\u2713" : "\u2717"}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Split Among */}
           <div>
