@@ -32,8 +32,8 @@ export default function TransactionForm() {
   );
 
   // Settlement fields
-  const [fromUserId, setFromUserId] = useState<number>(USERS[0].id);
-  const [toUserId, setToUserId] = useState<number>(USERS[1].id);
+  const [fromUserId, setFromUserId] = useState<number>(0);
+  const [toUserId, setToUserId] = useState<number>(0);
   const [settlementAmount, setSettlementAmount] = useState("");
 
   // File upload
@@ -79,17 +79,21 @@ export default function TransactionForm() {
   const sharesMatch = totalCents > 0 && sharesSumCents === totalCents;
   const includedCount = shares.filter((s) => s.included).length;
 
+  const hasOtherThanPayer = shares.some((s) => s.included && s.userId !== payerId);
   const canSubmitExpense =
     item.trim() &&
     date &&
     payerId > 0 &&
     totalCents > 0 &&
     includedCount > 0 &&
+    hasOtherThanPayer &&
     sharesMatch;
 
   const canSubmitSettlement =
     item.trim() &&
     date &&
+    fromUserId > 0 &&
+    toUserId > 0 &&
     dollarsToCents(settlementAmount) > 0 &&
     fromUserId !== toUserId;
 
@@ -309,7 +313,7 @@ export default function TransactionForm() {
                       prev.map((s) => ({ ...s, included: true }))
                     )
                   }
-                  className="text-xs text-accent hover:underline"
+                  className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 active:bg-accent/30 transition-colors"
                 >
                   All
                 </button>
@@ -319,7 +323,7 @@ export default function TransactionForm() {
                       prev.map((s) => ({ ...s, included: false, amount: "" }))
                     )
                   }
-                  className="text-xs text-muted hover:underline"
+                  className="px-3 py-1.5 text-xs font-medium text-muted bg-background rounded-md hover:bg-card-hover active:bg-border transition-colors"
                 >
                   None
                 </button>
@@ -410,6 +414,7 @@ export default function TransactionForm() {
                 onChange={(e) => setFromUserId(Number(e.target.value))}
                 className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
               >
+                <option value={0} disabled>Select...</option>
                 {USERS.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
@@ -426,6 +431,7 @@ export default function TransactionForm() {
                 onChange={(e) => setToUserId(Number(e.target.value))}
                 className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
               >
+                <option value={0} disabled>Select...</option>
                 {USERS.filter((u) => u.id !== fromUserId).map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
@@ -457,7 +463,7 @@ export default function TransactionForm() {
       {/* File Upload */}
       <div className="mb-4">
         <label className="block text-xs text-muted mb-1">
-          Receipt / Photo (optional)
+          Receipt / photo (optional)
         </label>
         <label className="flex items-center justify-center w-full h-20 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-accent/50 transition-colors">
           <div className="text-center">

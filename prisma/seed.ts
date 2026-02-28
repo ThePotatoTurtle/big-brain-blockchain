@@ -9,13 +9,13 @@ const adapter = new PrismaPg({ connectionString: connectionString! });
 const prisma = new PrismaClient({ adapter });
 
 const users = [
-  { name: "Danny", email: null },
   { name: "Andy", email: null },
-  { name: "Timmy", email: null },
-  { name: "Jayden", email: null },
   { name: "Calvin", email: null },
+  { name: "Danny", email: null },
   { name: "Henry", email: null },
+  { name: "Jayden", email: null },
   { name: "Leon", email: null },
+  { name: "Timmy", email: null },
 ];
 
 async function main() {
