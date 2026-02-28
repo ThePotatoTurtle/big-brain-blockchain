@@ -365,25 +365,25 @@ export default function TransactionForm() {
 
           {/* Split Among */}
           <div>
+            <button
+              onClick={() => {
+                setRestaurantMode((prev) => !prev);
+                setShares((prev) =>
+                  prev.map((s) => ({ ...s, amount: "" }))
+                );
+              }}
+              className={`w-full mb-2 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                restaurantMode
+                  ? "border-accent bg-accent/15 text-accent"
+                  : "border-border bg-background text-muted hover:border-muted"
+              }`}
+            >
+              {restaurantMode ? "\u2713 " : ""}Restaurant mode
+            </button>
+
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-muted">Split among</label>
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setRestaurantMode((prev) => !prev);
-                    // Clear calculated shares when toggling
-                    setShares((prev) =>
-                      prev.map((s) => ({ ...s, amount: "" }))
-                    );
-                  }}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    restaurantMode
-                      ? "text-white bg-accent"
-                      : "text-muted bg-background hover:bg-card-hover"
-                  }`}
-                >
-                  Restaurant
-                </button>
                 <button
                   onClick={() =>
                     setShares((prev) =>
@@ -443,7 +443,7 @@ export default function TransactionForm() {
                           min="0"
                           value={pretaxAmounts[s.userId] || ""}
                           onChange={(e) => setPretaxAmount(s.userId, e.target.value)}
-                          placeholder="pretax"
+                          placeholder="Before tax/tip"
                           className="w-full bg-background border border-border rounded-md pl-5 pr-2 py-1.5 text-xs focus:outline-none focus:border-accent"
                         />
                       </div>
@@ -511,7 +511,7 @@ export default function TransactionForm() {
             </div>
             {restaurantMode && pretaxTotal > 0 && totalCents > 0 && (
               <div className="text-xs text-muted mt-1">
-                Pretax subtotal: {centsToDisplay(pretaxTotal)} &rarr; Total: {centsToDisplay(totalCents)} ({((totalCents / pretaxTotal - 1) * 100).toFixed(1)}% tax+tip)
+                Subtotal: {centsToDisplay(pretaxTotal)} &rarr; Total: {centsToDisplay(totalCents)} ({((totalCents / pretaxTotal - 1) * 100).toFixed(1)}% tax/tip)
               </div>
             )}
           </div>
@@ -638,8 +638,8 @@ export default function TransactionForm() {
         {isSubmitting
           ? "Submitting..."
           : type === "expense"
-          ? "Add Expense"
-          : "Record Settlement"}
+          ? "Add expense"
+          : "Record settlement"}
       </button>
     </div>
   );
