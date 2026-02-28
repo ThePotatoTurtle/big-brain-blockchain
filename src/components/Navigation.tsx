@@ -40,7 +40,7 @@ export default function Navigation() {
     <>
       {/* Desktop top nav */}
       <nav className="hidden md:flex items-center justify-between px-6 py-3 bg-card border-b border-border">
-        <h1 className="text-lg font-bold text-accent">Pool Tracker</h1>
+        <h1 className="text-lg font-bold text-accent">Big Brain Blockchain</h1>
         <div className="flex gap-1">
           {tabs.map((tab) => {
             const active = pathname === tab.href;

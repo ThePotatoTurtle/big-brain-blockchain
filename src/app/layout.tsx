@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pool Tracker",
+  title: "Big Brain Blockchain",
   description: "Track shared expenses between friends",
 };
 

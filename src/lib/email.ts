@@ -54,9 +54,9 @@ export async function sendExpenseNotifications(
     .filter((u) => u.email && u.amountCents < 0)
     .map((user) =>
       resend.emails.send({
-        from: "Pool Tracker <notifications@pooltracker.app>",
+        from: "Big Brain Blockchain <notifications@pooltracker.app>",
         to: user.email!,
-        subject: `[Pool] ${createdByName} added: ${item}`,
+        subject: `[BBB] ${createdByName} added: ${item}`,
         html: buildEmailHtml({
           recipientEmail: user.email!,
           recipientName: user.name,
