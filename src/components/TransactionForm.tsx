@@ -61,6 +61,11 @@ export default function TransactionForm() {
     if (included.length === 0) return;
 
     const splitAmounts = splitEvenly(totalCents, included.length);
+    // Give remainder cent(s) to the payer instead of first person
+    const payerIdx = included.findIndex((s) => s.userId === payerId);
+    if (payerIdx > 0) {
+      [splitAmounts[0], splitAmounts[payerIdx]] = [splitAmounts[payerIdx], splitAmounts[0]];
+    }
     let idx = 0;
 
     setShares((prev) =>
@@ -197,7 +202,7 @@ export default function TransactionForm() {
   };
 
   return (
-    <div className="bg-card rounded-xl p-4 md:p-6">
+    <div className="bg-card rounded-xl p-4 md:p-6 overflow-hidden">
       <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">
         New Entry
       </h2>
@@ -235,7 +240,7 @@ export default function TransactionForm() {
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+              className="w-full max-w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent box-border"
             />
           </div>
           <div>
