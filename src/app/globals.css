@@ -49,6 +49,14 @@ input[type="number"] {
   }
 }
 
+/* Constrain date input width on iOS/mobile */
+input[type="date"] {
+  min-width: 0;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
