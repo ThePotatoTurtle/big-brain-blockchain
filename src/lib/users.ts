@@ -1,7 +1,7 @@
 export const USERS = [
   { id: 1, name: "Andy", email: "andy@example.com", color: "#EF4444" },
   { id: 2, name: "Calvin", email: "calvin@example.com", color: "#8B5CF6" },
-  { id: 3, name: "Danny", email: "danny@example.com", color: "#3B82F6" },
+  { id: 3, name: "Danny", email: "danny@example.com", color: "#66ffcc" },
   { id: 4, name: "Henry", email: "henry@example.com", color: "#EC4899" },
   { id: 5, name: "Jayden", email: "jayden@example.com", color: "#F59E0B" },
   { id: 6, name: "Leon", email: "leonlin773@gmail.com", color: "#008000" },
