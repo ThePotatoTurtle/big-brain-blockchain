@@ -352,7 +352,7 @@ export default function TransactionForm() {
                 </span>
                 <input
                   type="text"
-                  inputMode="text"
+                  inputMode="decimal"
                   value={totalAmount}
                   onChange={(e) => setTotalAmount(e.target.value)}
                   placeholder="0.00"
@@ -458,7 +458,7 @@ export default function TransactionForm() {
                         </span>
                         <input
                           type="text"
-                          inputMode="text"
+                          inputMode="decimal"
                           value={s.amount}
                           onChange={(e) =>
                             setShareAmount(s.userId, e.target.value)
@@ -562,7 +562,7 @@ export default function TransactionForm() {
               </span>
               <input
                 type="text"
-                inputMode="text"
+                inputMode="decimal"
                 value={settlementAmount}
                 onChange={(e) => setSettlementAmount(e.target.value)}
                 placeholder="0.00"
