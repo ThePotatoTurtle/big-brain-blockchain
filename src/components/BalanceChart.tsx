@@ -92,6 +92,23 @@ export default function BalanceChart({
     );
   }
 
+  // Compute Y-axis domain from visible data with ~10% padding
+  const visibleNames = USERS.filter((u) => !hiddenUsers.has(u.name)).map((u) => u.name);
+  let yMin = 0;
+  let yMax = 0;
+  for (const point of data) {
+    for (const name of visibleNames) {
+      const val = (point as Record<string, unknown>)[name];
+      if (typeof val === "number") {
+        if (val < yMin) yMin = val;
+        if (val > yMax) yMax = val;
+      }
+    }
+  }
+  const yRange = yMax - yMin || 1;
+  const yPad = yRange * 0.1;
+  const yDomain: [number, number] = [Math.floor(yMin - yPad), Math.ceil(yMax + yPad)];
+
   return (
     <div className="bg-card rounded-xl p-4 md:p-6">
       {/* Custom Legend */}
@@ -139,6 +156,7 @@ export default function BalanceChart({
           <YAxis
             stroke="#94A3B8"
             fontSize={11}
+            domain={yDomain}
             tickFormatter={(val) => formatCents(val)}
           />
           <Tooltip
@@ -152,9 +170,9 @@ export default function BalanceChart({
               type="monotone"
               dataKey={u.name}
               stroke={u.color}
-              strokeWidth={2}
-              dot={{ r: 1.5, fill: u.color }}
-              activeDot={{ r: 4 }}
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 3.5 }}
               hide={hiddenUsers.has(u.name)}
               connectNulls
             />
