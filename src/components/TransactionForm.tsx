@@ -31,6 +31,10 @@ export default function TransactionForm() {
     USERS.map((u) => ({ userId: u.id, included: false, amount: "" }))
   );
 
+  // Restaurant split mode
+  const [restaurantMode, setRestaurantMode] = useState(false);
+  const [pretaxAmounts, setPretaxAmounts] = useState<Record<number, string>>({});
+
   // Settlement fields
   const [fromUserId, setFromUserId] = useState<number>(0);
   const [toUserId, setToUserId] = useState<number>(0);
@@ -45,12 +49,19 @@ export default function TransactionForm() {
         s.userId === userId ? { ...s, included: !s.included, amount: s.included ? "" : s.amount } : s
       )
     );
+    if (restaurantMode) {
+      setPretaxAmounts((prev) => ({ ...prev, [userId]: "" }));
+    }
   };
 
   const setShareAmount = (userId: number, amount: string) => {
     setShares((prev) =>
       prev.map((s) => (s.userId === userId ? { ...s, amount } : s))
     );
+  };
+
+  const setPretaxAmount = (userId: number, amount: string) => {
+    setPretaxAmounts((prev) => ({ ...prev, [userId]: amount }));
   };
 
   const handleSplitEvenly = () => {
@@ -77,12 +88,55 @@ export default function TransactionForm() {
     );
   };
 
+  const handleRestaurantSplit = () => {
+    const totalCents = dollarsToCents(totalAmount);
+    if (totalCents <= 0) return;
+
+    const included = shares.filter((s) => s.included);
+    if (included.length === 0) return;
+
+    const pretaxCents = included.map((s) => dollarsToCents(pretaxAmounts[s.userId] || "0"));
+    const pretaxTotal = pretaxCents.reduce((sum, c) => sum + c, 0);
+    if (pretaxTotal <= 0) return;
+
+    // Calculate proportional shares using floor, then distribute remainder
+    const rawShares = pretaxCents.map((pc) => Math.floor((pc / pretaxTotal) * totalCents));
+    let remainderCents = totalCents - rawShares.reduce((sum, s) => sum + s, 0);
+
+    // Give remainder cents to payer first
+    const payerIncludedIdx = included.findIndex((s) => s.userId === payerId);
+    if (payerIncludedIdx >= 0 && remainderCents > 0) {
+      const give = Math.min(remainderCents, remainderCents);
+      rawShares[payerIncludedIdx] += give;
+      remainderCents -= give;
+    }
+    // Distribute any leftover to others
+    for (let i = 0; i < rawShares.length && remainderCents > 0; i++) {
+      rawShares[i]++;
+      remainderCents--;
+    }
+
+    let idx = 0;
+    setShares((prev) =>
+      prev.map((s) => {
+        if (!s.included) return s;
+        const cents = rawShares[idx++];
+        return { ...s, amount: (cents / 100).toFixed(2) };
+      })
+    );
+  };
+
   const sharesSumCents = shares
     .filter((s) => s.included)
     .reduce((sum, s) => sum + dollarsToCents(s.amount), 0);
   const totalCents = dollarsToCents(totalAmount);
   const sharesMatch = totalCents > 0 && sharesSumCents === totalCents;
   const includedCount = shares.filter((s) => s.included).length;
+
+  const pretaxTotal = shares
+    .filter((s) => s.included)
+    .reduce((sum, s) => sum + dollarsToCents(pretaxAmounts[s.userId] || "0"), 0);
+  const canCalculateRestaurant = restaurantMode && totalCents > 0 && pretaxTotal > 0 && includedCount > 0;
 
   const hasOtherThanPayer = shares.some((s) => s.included && s.userId !== payerId);
   const canSubmitExpense =
@@ -109,6 +163,8 @@ export default function TransactionForm() {
     setNotes("");
     setTotalAmount("");
     setShares(USERS.map((u) => ({ userId: u.id, included: false, amount: "" })));
+    setPretaxAmounts({});
+    setRestaurantMode(false);
     setSettlementAmount("");
     setFiles([]);
     setError("");
@@ -313,6 +369,22 @@ export default function TransactionForm() {
               <label className="text-xs text-muted">Split among</label>
               <div className="flex gap-2">
                 <button
+                  onClick={() => {
+                    setRestaurantMode((prev) => !prev);
+                    // Clear calculated shares when toggling
+                    setShares((prev) =>
+                      prev.map((s) => ({ ...s, amount: "" }))
+                    );
+                  }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    restaurantMode
+                      ? "text-white bg-accent"
+                      : "text-muted bg-background hover:bg-card-hover"
+                  }`}
+                >
+                  Restaurant
+                </button>
+                <button
                   onClick={() =>
                     setShares((prev) =>
                       prev.map((s) => ({ ...s, included: true }))
@@ -323,11 +395,12 @@ export default function TransactionForm() {
                   All
                 </button>
                 <button
-                  onClick={() =>
+                  onClick={() => {
                     setShares((prev) =>
                       prev.map((s) => ({ ...s, included: false, amount: "" }))
-                    )
-                  }
+                    );
+                    setPretaxAmounts({});
+                  }}
                   className="px-3 py-1.5 text-xs font-medium text-muted bg-background rounded-md hover:bg-card-hover active:bg-border transition-colors"
                 >
                   None
@@ -359,7 +432,28 @@ export default function TransactionForm() {
                       style={{ backgroundColor: user.color }}
                     />
                     <span className="text-sm w-16 truncate">{user.name}</span>
-                    {s.included && (
+                    {s.included && restaurantMode && (
+                      <div className="relative flex-1">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted text-xs">
+                          $
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={pretaxAmounts[s.userId] || ""}
+                          onChange={(e) => setPretaxAmount(s.userId, e.target.value)}
+                          placeholder="pretax"
+                          className="w-full bg-background border border-border rounded-md pl-5 pr-2 py-1.5 text-xs focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                    )}
+                    {s.included && restaurantMode && s.amount && (
+                      <span className="text-xs text-muted shrink-0">
+                        = {centsToDisplay(dollarsToCents(s.amount))}
+                      </span>
+                    )}
+                    {s.included && !restaurantMode && (
                       <div className="relative flex-1">
                         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted text-xs">
                           $
@@ -382,15 +476,28 @@ export default function TransactionForm() {
               })}
             </div>
 
-            {/* Split evenly + validation */}
+            {/* Split buttons + validation */}
             <div className="flex items-center justify-between mt-3">
-              <button
-                onClick={handleSplitEvenly}
-                disabled={includedCount === 0 || totalCents <= 0}
-                className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 active:bg-accent/30 transition-colors disabled:text-muted disabled:bg-background disabled:opacity-50"
-              >
-                Split evenly ({includedCount})
-              </button>
+              <div className="flex gap-2">
+                {!restaurantMode && (
+                  <button
+                    onClick={handleSplitEvenly}
+                    disabled={includedCount === 0 || totalCents <= 0}
+                    className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 active:bg-accent/30 transition-colors disabled:text-muted disabled:bg-background disabled:opacity-50"
+                  >
+                    Split evenly ({includedCount})
+                  </button>
+                )}
+                {restaurantMode && (
+                  <button
+                    onClick={handleRestaurantSplit}
+                    disabled={!canCalculateRestaurant}
+                    className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 active:bg-accent/30 transition-colors disabled:text-muted disabled:bg-background disabled:opacity-50"
+                  >
+                    Calculate split
+                  </button>
+                )}
+              </div>
               {totalCents > 0 && includedCount > 0 && (
                 <span
                   className={`text-xs font-mono ${
@@ -402,6 +509,11 @@ export default function TransactionForm() {
                 </span>
               )}
             </div>
+            {restaurantMode && pretaxTotal > 0 && totalCents > 0 && (
+              <div className="text-xs text-muted mt-1">
+                Pretax subtotal: {centsToDisplay(pretaxTotal)} &rarr; Total: {centsToDisplay(totalCents)} ({((totalCents / pretaxTotal - 1) * 100).toFixed(1)}% tax+tip)
+              </div>
+            )}
           </div>
         </div>
       )}
