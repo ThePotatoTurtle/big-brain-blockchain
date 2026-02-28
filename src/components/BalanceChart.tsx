@@ -8,7 +8,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
+  ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
 import { USERS } from "@/lib/users";
@@ -145,6 +145,7 @@ export default function BalanceChart({
             content={<CustomTooltip />}
             cursor={{ stroke: "#475569", strokeDasharray: "3 3" }}
           />
+          <ReferenceLine y={0} stroke="#64748B" strokeWidth={1.5} strokeDasharray="6 3" />
           {USERS.map((u) => (
             <Line
               key={u.name}
@@ -152,8 +153,8 @@ export default function BalanceChart({
               dataKey={u.name}
               stroke={u.color}
               strokeWidth={2}
-              dot={{ r: 3, fill: u.color }}
-              activeDot={{ r: 5 }}
+              dot={{ r: 1.5, fill: u.color }}
+              activeDot={{ r: 4 }}
               hide={hiddenUsers.has(u.name)}
               connectNulls
             />

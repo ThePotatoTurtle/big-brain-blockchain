@@ -94,13 +94,33 @@ async function importTransactions() {
       continue;
     }
 
+    // If splits don't match total, add remainder to payer's share
+    if (Math.abs(totalFromSheet - sumSplitsCents) > 100) {
+      // Big mismatch (>$1) — skip
+      console.error(`Row ${i}: Splits (${sumSplitsCents}) don't match total (${totalFromSheet}) by ${Math.abs(totalFromSheet - sumSplitsCents)}c - "${item}"`);
+      errors++;
+      continue;
+    }
+    if (totalFromSheet !== sumSplitsCents) {
+      const diff = totalFromSheet - sumSplitsCents;
+      // Add remainder to payer's split
+      const payerSplit = splits.find((s) => s.userId === payerId);
+      if (payerSplit) {
+        payerSplit.amountCents += diff;
+      } else {
+        splits.push({ userId: payerId, amountCents: diff });
+      }
+      sumSplitsCents = totalFromSheet;
+      console.log(`  Row ${i}: Added ${diff}c remainder to payer (${paidByName}) - "${item}"`);
+    }
+
     // Build transaction lines (zero-sum):
-    // Payer gets +sumSplitsCents credit, each person gets -theirShare debit
+    // Payer gets +totalFromSheet credit, each person gets -theirShare debit
     // If payer is also in splits, merge into one line
     const lineMap = new Map<number, number>();
 
-    // Payer credit
-    lineMap.set(payerId, sumSplitsCents);
+    // Payer credit = total from sheet (= sum of splits after adjustment)
+    lineMap.set(payerId, totalFromSheet);
 
     // Debits for each split person
     for (const { userId, amountCents } of splits) {
@@ -128,7 +148,7 @@ async function importTransactions() {
           type: "expense",
           item,
           notes,
-          totalAmountCents: sumSplitsCents, // actual total from splits
+          totalAmountCents: totalFromSheet,
           createdById: payerId,
           status: "confirmed",
           lines: {
@@ -233,11 +253,14 @@ async function main() {
   }
   console.log("User ID mapping verified!\n");
 
-  // Check existing transactions
+  // Clear existing transactions before import
   const existingCount = await prisma.transaction.count();
   if (existingCount > 0) {
-    console.error(`WARNING: ${existingCount} transactions already exist! Clear DB first.`);
-    process.exit(1);
+    console.log(`Clearing ${existingCount} existing transactions...`);
+    await prisma.transactionLine.deleteMany();
+    await prisma.attachment.deleteMany();
+    await prisma.transaction.deleteMany();
+    console.log("Cleared!\n");
   }
 
   console.log("Importing transactions...");
