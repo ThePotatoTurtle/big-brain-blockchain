@@ -109,9 +109,12 @@ export default function BalanceChart({
       }
     }
   }
-  const yRange = yMax - yMin || 1;
-  const yPad = yRange * 0.1;
-  const yDomain: [number, number] = [Math.floor(yMin - yPad), Math.ceil(yMax + yPad)];
+  // Round domain to nearest $50 (5000 cents)
+  const step = 5000;
+  const yDomain: [number, number] = [
+    Math.floor(yMin / step) * step,
+    Math.ceil(yMax / step) * step,
+  ];
 
   // Add timestamps for proportional X-axis scaling
   const chartData = data.map((point) => ({
@@ -150,7 +153,7 @@ export default function BalanceChart({
       {/* Chart */}
       <ResponsiveContainer width="100%" height={400}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
           <XAxis
             dataKey="_ts"
             type="number"
@@ -170,6 +173,10 @@ export default function BalanceChart({
             stroke="#94A3B8"
             fontSize={11}
             domain={yDomain}
+            ticks={Array.from(
+              { length: (yDomain[1] - yDomain[0]) / step + 1 },
+              (_, i) => yDomain[0] + i * step
+            )}
             tickFormatter={(val) => formatCents(val)}
           />
           <Tooltip
