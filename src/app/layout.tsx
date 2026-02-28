@@ -15,7 +15,6 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Big Brain Blockchain",
-  description: "",
 };
 
 export default function RootLayout({
