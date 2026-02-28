@@ -39,6 +39,12 @@ export default function TransactionForm() {
   const isMultiPayer = payers.length > 1;
   const primaryPayerId = payers[0]?.userId ?? 0;
   const [totalAmount, setTotalAmount] = useState("");
+
+  // Auto-fill total from payer amounts in multi-payer mode
+  const syncTotalFromPayers = (updatedPayers: PayerEntry[]) => {
+    const sum = updatedPayers.reduce((s, p) => s + dollarsToCents(p.amount), 0);
+    setTotalAmount(sum > 0 ? (sum / 100).toFixed(2) : "");
+  };
   const [shares, setShares] = useState<ShareEntry[]>(
     USERS.map((u) => ({ userId: u.id, included: false, amount: "" }))
   );
@@ -380,7 +386,7 @@ export default function TransactionForm() {
                 <button
                   onClick={() =>
                     setPayers((prev) => [
-                      ...prev,
+                      { ...prev[0], amount: totalAmount },
                       { id: `payer-${payerIdCounter++}`, userId: 0, amount: "" },
                     ])
                   }
@@ -465,21 +471,23 @@ export default function TransactionForm() {
                             type="text"
                             inputMode="decimal"
                             value={p.amount}
-                            onChange={(e) =>
-                              setPayers((prev) =>
-                                prev.map((pp) =>
-                                  pp.id === p.id ? { ...pp, amount: e.target.value } : pp
-                                )
-                              )
-                            }
+                            onChange={(e) => {
+                              const updated = payers.map((pp) =>
+                                pp.id === p.id ? { ...pp, amount: e.target.value } : pp
+                              );
+                              setPayers(updated);
+                              syncTotalFromPayers(updated);
+                            }}
                             placeholder="0.00"
                             className="w-full bg-background border border-border rounded-lg pl-5 pr-2 py-2 text-sm focus:outline-none focus:border-accent"
                           />
                         </div>
                         <button
-                          onClick={() =>
-                            setPayers((prev) => prev.filter((pp) => pp.id !== p.id))
-                          }
+                          onClick={() => {
+                            const updated = payers.filter((pp) => pp.id !== p.id);
+                            setPayers(updated);
+                            if (updated.length > 1) syncTotalFromPayers(updated);
+                          }}
                           className="text-muted hover:text-negative text-lg leading-none px-1"
                         >
                           &times;

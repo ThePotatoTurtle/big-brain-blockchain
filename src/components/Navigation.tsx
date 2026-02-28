@@ -40,12 +40,12 @@ export default function Navigation() {
     <>
       {/* Mobile top title bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-center px-4 py-2 bg-card border-b border-border">
-        <h1 className="text-sm font-bold text-muted">Big Brain Blockchain</h1>
+        <Link href="/" className="text-sm font-bold text-muted">Big Brain Blockchain</Link>
       </div>
 
       {/* Desktop top nav */}
       <nav className="hidden md:flex items-center justify-between px-6 py-3 bg-card border-b border-border">
-        <h1 className="text-lg font-bold text-muted">Big Brain Blockchain</h1>
+        <Link href="/" className="text-lg font-bold text-muted">Big Brain Blockchain</Link>
         <div className="flex gap-1">
           {tabs.map((tab) => {
             const active = pathname === tab.href;
