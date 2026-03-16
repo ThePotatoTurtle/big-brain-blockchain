@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /c/Users/goldf/OneDrive/Desktop/bigbrainblockchain3/.env*)"
+    ]
+  }
+}
