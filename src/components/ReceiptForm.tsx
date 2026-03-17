@@ -114,12 +114,12 @@ export default function ReceiptForm() {
   useEffect(() => {
     if (phase !== "upload") return;
     const handlePaste = (e: ClipboardEvent) => {
-      const file = Array.from(e.clipboardData?.files ?? []).find((f) =>
-        f.type.startsWith("image/")
-      );
-      if (file) {
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageItem = items.find((it) => it.type.startsWith("image/"));
+      if (imageItem) {
         e.preventDefault();
-        acceptReceiptFile(file);
+        const file = imageItem.getAsFile();
+        if (file) acceptReceiptFile(file);
       }
     };
     window.addEventListener("paste", handlePaste);
@@ -129,8 +129,8 @@ export default function ReceiptForm() {
   // --- Handlers ---
 
   const acceptReceiptFile = (file: File) => {
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Image too large (max 10MB)");
+    if (file.size > 25 * 1024 * 1024) {
+      setError("Image too large (max 25MB)");
       return;
     }
     setReceiptFile(file);
@@ -417,7 +417,6 @@ export default function ReceiptForm() {
             <input
               type="file"
               accept="image/*"
-              capture="environment"
               onChange={handleFileSelect}
               className="hidden"
             />
@@ -434,7 +433,7 @@ export default function ReceiptForm() {
             disabled={!receiptFile}
             className="w-full py-3 bg-accent text-white font-medium rounded-lg transition-colors hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Scan Receipt
+            Scan receipt
           </button>
 
           <button
@@ -482,7 +481,7 @@ export default function ReceiptForm() {
             </div>
             <div>
               <label className="block text-xs text-muted mb-1">
-                Restaurant / Description
+                Restaurant / description
               </label>
               <input
                 type="text"
@@ -699,7 +698,7 @@ export default function ReceiptForm() {
           {/* Items */}
           <div>
             <label className="block text-xs text-muted mb-2">
-              Receipt Items
+              Items
             </label>
             <div className="space-y-3">
               {items.map((it, idx) => (
@@ -722,7 +721,7 @@ export default function ReceiptForm() {
             </button>
             {items.length > 0 && (
               <div className="mt-2 text-xs text-muted text-right">
-                Items subtotal: {centsToDisplay(itemsSubtotalCents)}
+                Subtotal: {centsToDisplay(itemsSubtotalCents)}
                 {itemsSubtotalCents > 0 &&
                   totalCents > 0 &&
                   totalCents !== itemsSubtotalCents && (

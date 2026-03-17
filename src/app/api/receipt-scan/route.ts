@@ -15,9 +15,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  if (file.size > 10 * 1024 * 1024) {
+  if (file.size > 25 * 1024 * 1024) {
     return NextResponse.json(
-      { error: "File too large (max 10MB)" },
+      { error: "File too large (max 25MB)" },
       { status: 400 }
     );
   }

@@ -65,9 +65,11 @@ export default function TransactionForm() {
   // Paste images from clipboard
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter(
-        (f) => f.type.startsWith("image/")
-      );
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageFiles = items
+        .filter((it) => it.type.startsWith("image/"))
+        .map((it) => it.getAsFile())
+        .filter((f): f is File => f !== null);
       if (imageFiles.length > 0) {
         e.preventDefault();
         setFiles((prev) => [...prev, ...imageFiles]);
