@@ -210,7 +210,9 @@ export async function POST(request: NextRequest) {
       return { ...created, lines: createdLines };
     });
 
-    // Fire-and-forget email notifications for expenses
+    // Send notifications (must await — Vercel freezes the function after response)
+    const notifications: Promise<unknown>[] = [];
+
     if (body.type === "expense") {
       const balanceResults = await prisma.transactionLine.groupBy({
         by: ["userId"],
@@ -236,35 +238,42 @@ export async function POST(request: NextRequest) {
         });
 
       const creatorName = getUserById(body.createdById)?.name ?? "Someone";
-      sendExpenseNotifications(creatorName, item, chargedUsers).catch((e) =>
-        console.error("Email notification error:", e)
+      notifications.push(
+        sendExpenseNotifications(creatorName, item, chargedUsers).catch((e) =>
+          console.error("Email notification error:", e)
+        )
       );
     }
 
-    // Fire-and-forget Discord webhook notification
     if (body.type === "expense") {
-      sendDiscordNotification({
-        type: "expense",
-        date: body.date,
-        item,
-        notes: body.notes ?? null,
-        totalAmountCents: body.totalAmountCents,
-        payers: body.payers,
-        shares: body.shares,
-        createdById: body.createdById,
-      }).catch((e) => console.error("Discord notification error:", e));
+      notifications.push(
+        sendDiscordNotification({
+          type: "expense",
+          date: body.date,
+          item,
+          notes: body.notes ?? null,
+          totalAmountCents: body.totalAmountCents,
+          payers: body.payers,
+          shares: body.shares,
+          createdById: body.createdById,
+        }).catch((e) => console.error("Discord notification error:", e))
+      );
     } else if (body.type === "settlement") {
-      sendDiscordNotification({
-        type: "settlement",
-        date: body.date,
-        item,
-        notes: body.notes ?? null,
-        fromUserId: body.fromUserId,
-        toUserId: body.toUserId,
-        amountCents: body.amountCents,
-        createdById: body.createdById,
-      }).catch((e) => console.error("Discord notification error:", e));
+      notifications.push(
+        sendDiscordNotification({
+          type: "settlement",
+          date: body.date,
+          item,
+          notes: body.notes ?? null,
+          fromUserId: body.fromUserId,
+          toUserId: body.toUserId,
+          amountCents: body.amountCents,
+          createdById: body.createdById,
+        }).catch((e) => console.error("Discord notification error:", e))
+      );
     }
+
+    await Promise.allSettled(notifications);
 
     return NextResponse.json({ id: transaction.id }, { status: 201 });
   } catch (error) {
