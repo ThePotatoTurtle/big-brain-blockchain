@@ -1,7 +1,5 @@
 import { getUserById } from "@/lib/users";
 
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-
 interface ExpenseNotification {
   type: "expense";
   date: string;
@@ -104,14 +102,18 @@ function truncate(s: string, max: number): string {
 export async function sendDiscordNotification(
   data: TransactionNotification
 ): Promise<void> {
-  if (!DISCORD_WEBHOOK_URL) return;
+  const url = process.env.DISCORD_WEBHOOK_URL;
+  if (!url) {
+    console.warn("DISCORD_WEBHOOK_URL not set, skipping notification");
+    return;
+  }
 
   const embed =
     data.type === "expense"
       ? buildExpenseEmbed(data)
       : buildSettlementEmbed(data);
 
-  await fetch(DISCORD_WEBHOOK_URL, {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -119,4 +121,9 @@ export async function sendDiscordNotification(
       embeds: [embed],
     }),
   });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error(`Discord webhook failed (${res.status}):`, text);
+  }
 }
