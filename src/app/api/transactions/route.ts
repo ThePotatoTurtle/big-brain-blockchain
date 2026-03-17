@@ -7,6 +7,7 @@ import {
   validateZeroSum,
 } from "@/lib/transactions";
 import { sendExpenseNotifications } from "@/lib/email";
+import { sendDiscordNotification } from "@/lib/discord";
 import type {
   CreateTransactionRequest,
   TransactionWithDetails,
@@ -238,6 +239,31 @@ export async function POST(request: NextRequest) {
       sendExpenseNotifications(creatorName, item, chargedUsers).catch((e) =>
         console.error("Email notification error:", e)
       );
+    }
+
+    // Fire-and-forget Discord webhook notification
+    if (body.type === "expense") {
+      sendDiscordNotification({
+        type: "expense",
+        date: body.date,
+        item,
+        notes: body.notes ?? null,
+        totalAmountCents: body.totalAmountCents,
+        payers: body.payers,
+        shares: body.shares,
+        createdById: body.createdById,
+      }).catch((e) => console.error("Discord notification error:", e));
+    } else if (body.type === "settlement") {
+      sendDiscordNotification({
+        type: "settlement",
+        date: body.date,
+        item,
+        notes: body.notes ?? null,
+        fromUserId: body.fromUserId,
+        toUserId: body.toUserId,
+        amountCents: body.amountCents,
+        createdById: body.createdById,
+      }).catch((e) => console.error("Discord notification error:", e));
     }
 
     return NextResponse.json({ id: transaction.id }, { status: 201 });
