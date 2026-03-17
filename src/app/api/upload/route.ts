@@ -12,7 +12,10 @@ export async function POST(request: NextRequest) {
 
     const uploaded = await Promise.all(
       files.map(async (file) => {
-        const blob = await put(file.name, file, {
+        const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
+        const base = file.name.includes(".") ? file.name.slice(0, file.name.lastIndexOf(".")) : file.name || "file";
+        const unique = `${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+        const blob = await put(unique, file, {
           access: "public",
         });
         return {
