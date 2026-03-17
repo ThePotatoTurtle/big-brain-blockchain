@@ -342,21 +342,31 @@ export default function ReceiptForm() {
     setError("");
 
     try {
-      // Upload receipt file if present
+      // Upload receipt file if present (non-blocking: expense still created if upload fails)
       let attachmentUrls: { fileUrl: string; fileName: string }[] = [];
+      let uploadWarning = "";
       if (receiptFile) {
-        const uploadForm = new FormData();
-        uploadForm.append("files", receiptFile);
-        const uploadRes = await fetch("/api/upload", {
-          method: "POST",
-          body: uploadForm,
-        });
-        if (!uploadRes.ok) {
-          const uploadErr = await uploadRes.json().catch(() => ({}));
-          throw new Error(uploadErr.error || `Upload failed (${uploadRes.status})`);
+        try {
+          const uploadForm = new FormData();
+          uploadForm.append("files", receiptFile);
+          const uploadRes = await fetch("/api/upload", {
+            method: "POST",
+            body: uploadForm,
+          });
+          if (!uploadRes.ok) {
+            const uploadErr = await uploadRes.json().catch(() => ({}));
+            const detail = uploadErr.error || `status ${uploadRes.status}`;
+            console.error("Receipt upload failed:", detail);
+            uploadWarning = ` (receipt image not saved: ${detail})`;
+          } else {
+            const uploadData = await uploadRes.json();
+            attachmentUrls = uploadData.files;
+          }
+        } catch (uploadErr) {
+          const detail = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+          console.error("Receipt upload error:", detail);
+          uploadWarning = ` (receipt image not saved: ${detail})`;
         }
-        const uploadData = await uploadRes.json();
-        attachmentUrls = uploadData.files;
       }
 
       // Format notes
@@ -402,7 +412,7 @@ export default function ReceiptForm() {
         throw new Error(data.error || "Failed to create transaction");
       }
 
-      setSuccess("Expense added!");
+      setSuccess("Expense added!" + uploadWarning);
       setPhase("done");
       router.refresh();
     } catch (err) {
