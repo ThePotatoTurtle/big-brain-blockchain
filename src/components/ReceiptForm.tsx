@@ -107,11 +107,28 @@ export default function ReceiptForm() {
     hasOtherThanPayer &&
     sharesMatch;
 
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Paste from clipboard (global listener during upload phase)
+  useEffect(() => {
+    if (phase !== "upload") return;
+    const handlePaste = (e: ClipboardEvent) => {
+      const file = Array.from(e.clipboardData?.files ?? []).find((f) =>
+        f.type.startsWith("image/")
+      );
+      if (file) {
+        e.preventDefault();
+        acceptReceiptFile(file);
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [phase]);
+
   // --- Handlers ---
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const acceptReceiptFile = (file: File) => {
     if (file.size > 10 * 1024 * 1024) {
       setError("Image too large (max 10MB)");
       return;
@@ -119,6 +136,20 @@ export default function ReceiptForm() {
     setReceiptFile(file);
     setReceiptPreviewUrl(URL.createObjectURL(file));
     setError("");
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) acceptReceiptFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = Array.from(e.dataTransfer.files).find((f) =>
+      f.type.startsWith("image/")
+    );
+    if (file) acceptReceiptFile(file);
   };
 
   const handleScan = async () => {
@@ -341,7 +372,16 @@ export default function ReceiptForm() {
       {/* Upload Phase */}
       {phase === "upload" && (
         <div className="bg-card rounded-xl p-4 md:p-6 space-y-4">
-          <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-accent/50 transition-colors">
+          <label
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            className={`flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+              isDragging
+                ? "border-accent bg-accent/10"
+                : "border-border hover:border-accent/50"
+            }`}
+          >
             {receiptPreviewUrl ? (
               <img
                 src={receiptPreviewUrl}
@@ -370,7 +410,7 @@ export default function ReceiptForm() {
                   />
                 </svg>
                 <span className="text-sm text-muted">
-                  Tap to upload receipt
+                  Tap, paste, or drag receipt here
                 </span>
               </div>
             )}

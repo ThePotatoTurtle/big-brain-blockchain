@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { USERS } from "@/lib/users";
 import { todayString, dollarsToCents, splitEvenly, centsToDisplay } from "@/lib/utils";
@@ -60,6 +60,22 @@ export default function TransactionForm() {
 
   // File upload
   const [files, setFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Paste images from clipboard
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter(
+        (f) => f.type.startsWith("image/")
+      );
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        setFiles((prev) => [...prev, ...imageFiles]);
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, []);
 
   const toggleShare = (userId: number) => {
     setShares((prev) =>
@@ -293,6 +309,17 @@ export default function TransactionForm() {
 
   const removeFile = (idx: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const dropped = Array.from(e.dataTransfer.files).filter(
+      (f) => f.type.startsWith("image/") || f.type === "application/pdf"
+    );
+    if (dropped.length > 0) {
+      setFiles((prev) => [...prev, ...dropped]);
+    }
   };
 
   return (
@@ -739,12 +766,21 @@ export default function TransactionForm() {
         <label className="block text-xs text-muted mb-1">
           Receipt / photo (optional)
         </label>
-        <label className="flex items-center justify-center w-full h-20 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-accent/50 transition-colors">
+        <label
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          className={`flex items-center justify-center w-full h-20 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+            isDragging
+              ? "border-accent bg-accent/10"
+              : "border-border hover:border-accent/50"
+          }`}
+        >
           <div className="text-center">
             <svg className="w-5 h-5 mx-auto text-muted mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <span className="text-xs text-muted">Tap to add photos</span>
+            <span className="text-xs text-muted">Tap, paste, or drag photos</span>
           </div>
           <input
             type="file"
