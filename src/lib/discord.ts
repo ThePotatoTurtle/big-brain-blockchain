@@ -113,17 +113,30 @@ export async function sendDiscordNotification(
       ? buildExpenseEmbed(data)
       : buildSettlementEmbed(data);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      username: "Big Brain Blockchain",
-      embeds: [embed],
-    }),
+  const payload = JSON.stringify({
+    username: "Big Brain Blockchain",
+    embeds: [embed],
   });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    console.error(`Discord webhook failed (${res.status}):`, text);
+  // Retry up to 3 times (transient TLS/network errors are common)
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.error(`Discord webhook failed (${res.status}):`, text);
+      }
+      return; // success or non-retryable error
+    } catch (err) {
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+        continue;
+      }
+      throw err; // give up after 3 attempts
+    }
   }
 }
