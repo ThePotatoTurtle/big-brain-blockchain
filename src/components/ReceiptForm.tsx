@@ -351,7 +351,10 @@ export default function ReceiptForm() {
           method: "POST",
           body: uploadForm,
         });
-        if (!uploadRes.ok) throw new Error("Failed to upload receipt");
+        if (!uploadRes.ok) {
+          const uploadErr = await uploadRes.json().catch(() => ({}));
+          throw new Error(uploadErr.error || `Upload failed (${uploadRes.status})`);
+        }
         const uploadData = await uploadRes.json();
         attachmentUrls = uploadData.files;
       }
