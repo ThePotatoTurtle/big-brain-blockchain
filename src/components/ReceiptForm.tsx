@@ -145,9 +145,7 @@ export default function ReceiptForm() {
       // Populate fields from OCR
       if (data.supplierName) setItem(data.supplierName);
       if (data.date) setDate(data.date);
-      if (data.totalAmount != null) {
-        setTotalAmount(Number(data.totalAmount).toFixed(2));
-      }
+      // Don't auto-fill total — receipts don't include tip
 
       // Populate items
       const scannedItems: ReceiptItem[] = (data.lineItems ?? []).map(
