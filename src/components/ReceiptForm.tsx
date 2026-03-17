@@ -25,6 +25,56 @@ interface PayerEntry {
 
 let payerIdCounter = 0;
 
+/** Compress large images (esp. PNG clipboard pastes) to JPEG ≤ 4MB */
+function compressImage(file: File, maxBytes = 4 * 1024 * 1024): Promise<File> {
+  return new Promise((resolve) => {
+    // Skip if already small enough or not an image
+    if (file.size <= maxBytes) {
+      resolve(file);
+      return;
+    }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      // Scale down if very large dimensions
+      let { width, height } = img;
+      const maxDim = 2400;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const compressed = new File(
+              [blob],
+              file.name.replace(/\.\w+$/, ".jpg") || "receipt.jpg",
+              { type: "image/jpeg" }
+            );
+            resolve(compressed);
+          } else {
+            resolve(file);
+          }
+        },
+        "image/jpeg",
+        0.85
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file); // fallback to original
+    };
+    img.src = url;
+  });
+}
+
 export default function ReceiptForm() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("upload");
@@ -128,13 +178,15 @@ export default function ReceiptForm() {
 
   // --- Handlers ---
 
-  const acceptReceiptFile = (file: File) => {
+  const acceptReceiptFile = async (file: File) => {
     if (file.size > 25 * 1024 * 1024) {
       setError("Image too large (max 25MB)");
       return;
     }
-    setReceiptFile(file);
-    setReceiptPreviewUrl(URL.createObjectURL(file));
+    // Compress large images (clipboard PNGs can be huge)
+    const compressed = await compressImage(file);
+    setReceiptFile(compressed);
+    setReceiptPreviewUrl(URL.createObjectURL(compressed));
     setError("");
   };
 
@@ -167,8 +219,17 @@ export default function ReceiptForm() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Scan failed");
+        let msg = "Scan failed";
+        try {
+          const data = await res.json();
+          msg = data.error || msg;
+        } catch {
+          const text = await res.text().catch(() => "");
+          if (res.status === 413 || text.toLowerCase().includes("too large")) {
+            msg = "Image too large for scanning. Try a smaller photo.";
+          }
+        }
+        throw new Error(msg);
       }
 
       const data = await res.json();
