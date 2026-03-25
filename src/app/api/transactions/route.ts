@@ -96,6 +96,38 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function DELETE(request: NextRequest) {
+  try {
+    const { id } = await request.json();
+    if (!id || typeof id !== "number") {
+      return NextResponse.json({ error: "Missing transaction id" }, { status: 400 });
+    }
+
+    // Fetch transaction details before deleting (for discord notification)
+    const transaction = await prisma.transaction.findUnique({ where: { id } });
+    if (!transaction) {
+      return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+    }
+
+    // Delete — cascade removes lines and attachments automatically
+    await prisma.transaction.delete({ where: { id } });
+
+    // Send discord notification
+    await sendDiscordNotification({
+      type: "deletion",
+      item: transaction.item,
+      transactionType: transaction.type as "expense" | "settlement",
+      totalAmountCents: transaction.totalAmountCents,
+      date: transaction.date.toISOString().split("T")[0],
+    }).catch((e) => console.error("Discord deletion notification error:", e));
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete transaction:", error);
+    return NextResponse.json({ error: "Failed to delete transaction" }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: CreateTransactionRequest = await request.json();

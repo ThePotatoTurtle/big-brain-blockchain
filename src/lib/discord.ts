@@ -22,7 +22,15 @@ interface SettlementNotification {
   createdById: number;
 }
 
-type TransactionNotification = ExpenseNotification | SettlementNotification;
+interface DeletionNotification {
+  type: "deletion";
+  item: string;
+  transactionType: "expense" | "settlement";
+  totalAmountCents: number | null;
+  date: string;
+}
+
+type TransactionNotification = ExpenseNotification | SettlementNotification | DeletionNotification;
 
 function cents(n: number): string {
   const abs = Math.abs(n);
@@ -95,6 +103,24 @@ function buildSettlementEmbed(data: SettlementNotification) {
   };
 }
 
+function buildDeletionEmbed(data: DeletionNotification) {
+  const typeLabel = data.transactionType === "settlement" ? "Settlement" : "Expense";
+  const fields = [
+    { name: "Type", value: typeLabel, inline: true },
+    { name: "Date", value: data.date, inline: true },
+  ];
+  if (data.totalAmountCents != null) {
+    fields.push({ name: "Amount", value: cents(data.totalAmountCents), inline: true });
+  }
+
+  return {
+    title: `Deleted: ${data.item}`,
+    color: 0xef4444, // red
+    fields,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + "\u2026";
 }
@@ -109,9 +135,11 @@ export async function sendDiscordNotification(
   }
 
   const embed =
-    data.type === "expense"
-      ? buildExpenseEmbed(data)
-      : buildSettlementEmbed(data);
+    data.type === "deletion"
+      ? buildDeletionEmbed(data)
+      : data.type === "expense"
+        ? buildExpenseEmbed(data)
+        : buildSettlementEmbed(data);
 
   const payload = JSON.stringify({
     username: "Big Brain Blockchain",
