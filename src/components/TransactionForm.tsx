@@ -6,6 +6,58 @@ import { USERS } from "@/lib/users";
 import { todayString, dollarsToCents, splitEvenly, centsToDisplay } from "@/lib/utils";
 import type { CreateTransactionRequest } from "@/lib/types";
 
+/** Compress large images (esp. PNG clipboard pastes) to JPEG ≤ 4MB */
+function compressImage(file: File, maxBytes = 4 * 1024 * 1024): Promise<File> {
+  return new Promise((resolve) => {
+    if (file.size <= maxBytes || !file.type.startsWith("image/")) {
+      resolve(file);
+      return;
+    }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      const maxDim = 2400;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const compressed = new File(
+              [blob],
+              file.name.replace(/\.\w+$/, ".jpg") || "image.jpg",
+              { type: "image/jpeg" }
+            );
+            resolve(compressed);
+          } else {
+            resolve(file);
+          }
+        },
+        "image/jpeg",
+        0.85
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+    img.src = url;
+  });
+}
+
+async function compressFiles(files: File[]): Promise<File[]> {
+  return Promise.all(files.map((f) => compressImage(f)));
+}
+
 type TransactionType = "expense" | "settlement";
 
 interface ShareEntry {
@@ -72,7 +124,9 @@ export default function TransactionForm() {
         .filter((f): f is File => f !== null);
       if (imageFiles.length > 0) {
         e.preventDefault();
-        setFiles((prev) => [...prev, ...imageFiles]);
+        compressFiles(imageFiles).then((compressed) =>
+          setFiles((prev) => [...prev, ...compressed])
+        );
       }
     };
     window.addEventListener("paste", handlePaste);
@@ -305,7 +359,9 @@ export default function TransactionForm() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+      compressFiles(Array.from(e.target.files!)).then((compressed) =>
+        setFiles((prev) => [...prev, ...compressed])
+      );
     }
   };
 
@@ -320,7 +376,9 @@ export default function TransactionForm() {
       (f) => f.type.startsWith("image/") || f.type === "application/pdf"
     );
     if (dropped.length > 0) {
-      setFiles((prev) => [...prev, ...dropped]);
+      compressFiles(dropped).then((compressed) =>
+        setFiles((prev) => [...prev, ...compressed])
+      );
     }
   };
 
