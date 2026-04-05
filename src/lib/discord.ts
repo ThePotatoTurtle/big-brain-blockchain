@@ -30,7 +30,29 @@ interface DeletionNotification {
   date: string;
 }
 
-type TransactionNotification = ExpenseNotification | SettlementNotification | DeletionNotification;
+interface EditedExpenseNotification {
+  type: "edited_expense";
+  date: string;
+  item: string;
+  notes: string | null;
+  totalAmountCents: number;
+  payers: { userId: number; amountCents: number }[];
+  shares: { userId: number; amountCents: number }[];
+  createdById: number;
+}
+
+interface EditedSettlementNotification {
+  type: "edited_settlement";
+  date: string;
+  item: string;
+  notes: string | null;
+  fromUserId: number;
+  toUserId: number;
+  amountCents: number;
+  createdById: number;
+}
+
+type TransactionNotification = ExpenseNotification | SettlementNotification | DeletionNotification | EditedExpenseNotification | EditedSettlementNotification;
 
 function cents(n: number): string {
   const abs = Math.abs(n);
@@ -121,6 +143,20 @@ function buildDeletionEmbed(data: DeletionNotification) {
   };
 }
 
+function buildEditedExpenseEmbed(data: EditedExpenseNotification) {
+  const embed = buildExpenseEmbed({ ...data, type: "expense" });
+  embed.title = `Edited: ${data.item}`;
+  embed.color = 0xf59e0b; // amber
+  return embed;
+}
+
+function buildEditedSettlementEmbed(data: EditedSettlementNotification) {
+  const embed = buildSettlementEmbed({ ...data, type: "settlement" });
+  embed.title = `Edited: ${data.item}`;
+  embed.color = 0xf59e0b; // amber
+  return embed;
+}
+
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + "\u2026";
 }
@@ -137,9 +173,13 @@ export async function sendDiscordNotification(
   const embed =
     data.type === "deletion"
       ? buildDeletionEmbed(data)
-      : data.type === "expense"
-        ? buildExpenseEmbed(data)
-        : buildSettlementEmbed(data);
+      : data.type === "edited_expense"
+        ? buildEditedExpenseEmbed(data)
+        : data.type === "edited_settlement"
+          ? buildEditedSettlementEmbed(data)
+          : data.type === "expense"
+            ? buildExpenseEmbed(data)
+            : buildSettlementEmbed(data);
 
   const payload = JSON.stringify({
     username: "Big Brain Blockchain",

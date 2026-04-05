@@ -128,6 +128,122 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, ...data } = body as { id: number } & CreateTransactionRequest;
+
+    if (!id || typeof id !== "number") {
+      return NextResponse.json({ error: "Missing transaction id" }, { status: 400 });
+    }
+
+    const existing = await prisma.transaction.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+    }
+
+    let lines;
+    let item = data.item;
+
+    if (data.type === "expense") {
+      const sharesSum = data.shares.reduce((s: number, sh: { amountCents: number }) => s + sh.amountCents, 0);
+      if (sharesSum !== data.totalAmountCents) {
+        return NextResponse.json(
+          { error: `Shares sum (${sharesSum}) does not match total (${data.totalAmountCents})` },
+          { status: 400 }
+        );
+      }
+      const payersSum = data.payers.reduce((s: number, p: { amountCents: number }) => s + p.amountCents, 0);
+      if (payersSum !== data.totalAmountCents) {
+        return NextResponse.json(
+          { error: `Payers sum (${payersSum}) does not match total (${data.totalAmountCents})` },
+          { status: 400 }
+        );
+      }
+      for (const p of data.payers) {
+        if (p.amountCents <= 0) {
+          return NextResponse.json({ error: "Each payer must have a positive amount" }, { status: 400 });
+        }
+      }
+      lines = computeExpenseLines(data.payers, data.shares);
+    } else if (data.type === "settlement") {
+      if (data.fromUserId === data.toUserId) {
+        return NextResponse.json({ error: "From and To users must be different" }, { status: 400 });
+      }
+      lines = computeSettlementLines(data.fromUserId, data.toUserId, data.amountCents);
+      if (!item || item === "Settlement") {
+        const from = getUserById(data.fromUserId);
+        const to = getUserById(data.toUserId);
+        item = `${from?.name ?? "?"} paid ${to?.name ?? "?"}`;
+      }
+    } else {
+      return NextResponse.json({ error: "Invalid transaction type" }, { status: 400 });
+    }
+
+    if (!validateZeroSum(lines)) {
+      return NextResponse.json({ error: "Internal error: transaction lines do not sum to zero" }, { status: 500 });
+    }
+
+    // Update transaction atomically: delete old lines, create new ones
+    await prisma.$transaction(async (tx) => {
+      await tx.transactionLine.deleteMany({ where: { transactionId: id } });
+
+      // Delete old attachments if new ones provided
+      if (data.attachmentUrls) {
+        await tx.attachment.deleteMany({ where: { transactionId: id } });
+      }
+
+      await tx.transaction.update({
+        where: { id },
+        data: {
+          date: new Date(data.date + "T00:00:00Z"),
+          type: data.type,
+          item,
+          notes: data.notes ?? null,
+          totalAmountCents: data.type === "expense" ? data.totalAmountCents : data.amountCents,
+          createdById: data.createdById,
+          lines: {
+            create: lines.map((l) => ({ userId: l.userId, amount: l.amount })),
+          },
+          attachments: data.attachmentUrls
+            ? { create: data.attachmentUrls.map((a: { fileUrl: string; fileName: string }) => ({ fileUrl: a.fileUrl, fileName: a.fileName })) }
+            : undefined,
+        },
+      });
+    });
+
+    // Send discord notification with full details
+    if (data.type === "expense") {
+      await sendDiscordNotification({
+        type: "edited_expense",
+        date: data.date,
+        item,
+        notes: data.notes ?? null,
+        totalAmountCents: data.totalAmountCents,
+        payers: data.payers,
+        shares: data.shares,
+        createdById: data.createdById,
+      }).catch((e) => console.error("Discord edit notification error:", e));
+    } else if (data.type === "settlement") {
+      await sendDiscordNotification({
+        type: "edited_settlement",
+        date: data.date,
+        item,
+        notes: data.notes ?? null,
+        fromUserId: data.fromUserId,
+        toUserId: data.toUserId,
+        amountCents: data.amountCents,
+        createdById: data.createdById,
+      }).catch((e) => console.error("Discord edit notification error:", e));
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Failed to update transaction:", error);
+    return NextResponse.json({ error: "Failed to update transaction" }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: CreateTransactionRequest = await request.json();

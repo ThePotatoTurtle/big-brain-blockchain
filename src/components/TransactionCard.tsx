@@ -7,9 +7,11 @@ import { getUserById } from "@/lib/users";
 export default function TransactionCard({
   transaction: t,
   onDelete,
+  onEdit,
 }: {
   transaction: TransactionWithDetails;
   onDelete?: (id: number) => void;
+  onEdit?: (t: TransactionWithDetails) => void;
 }) {
   const isSettlement = t.type === "settlement";
 
@@ -22,18 +24,31 @@ export default function TransactionCard({
 
   return (
     <div className="bg-card rounded-xl p-4 space-y-3 relative">
-      {/* Delete button */}
-      {onDelete && (
-        <button
-          onClick={() => onDelete(t.id)}
-          className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full text-muted hover:text-negative hover:bg-negative/20 transition-colors"
-          aria-label="Delete transaction"
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      )}
+      {/* Edit & Delete buttons */}
+      <div className="absolute top-2 right-2 flex items-center gap-1">
+        {onEdit && (
+          <button
+            onClick={() => onEdit(t)}
+            className="w-5 h-5 flex items-center justify-center rounded-full text-muted hover:text-accent hover:bg-accent/20 transition-colors"
+            aria-label="Edit transaction"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+            </svg>
+          </button>
+        )}
+        {onDelete && (
+          <button
+            onClick={() => onDelete(t.id)}
+            className="w-5 h-5 flex items-center justify-center rounded-full text-muted hover:text-negative hover:bg-negative/20 transition-colors"
+            aria-label="Delete transaction"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
 
       {/* Header */}
       <div className="flex items-start justify-between">
@@ -42,7 +57,7 @@ export default function TransactionCard({
           <p className="text-xs text-muted">{formatDate(t.date)}</p>
         </div>
         <span
-          className={`text-xs font-medium px-2 py-0.5 rounded-full mr-5 ${
+          className={`text-xs font-medium px-2 py-0.5 rounded-full mr-10 ${
             isSettlement
               ? "bg-accent/20 text-accent"
               : "bg-positive/20 text-positive"
