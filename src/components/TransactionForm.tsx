@@ -383,7 +383,13 @@ export default function TransactionForm() {
   };
 
   return (
-    <div className="bg-card rounded-xl p-4 md:p-6 overflow-hidden">
+    <div className="bg-card rounded-xl p-4 md:p-6 overflow-hidden relative">
+      {/* Corner triangle */}
+      <div
+        className={`absolute top-0 left-0 w-0 h-0 border-t-[24px] border-r-[24px] border-r-transparent transition-colors ${
+          type === "settlement" ? "border-t-accent" : "border-t-positive"
+        }`}
+      />
       <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">
         New Entry
       </h2>

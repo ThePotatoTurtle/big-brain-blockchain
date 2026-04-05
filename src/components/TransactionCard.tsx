@@ -26,7 +26,7 @@ export default function TransactionCard({
     <div className="bg-card rounded-xl p-4 space-y-3 relative overflow-hidden">
       {/* Corner triangle */}
       <div
-        className={`absolute top-0 right-0 w-0 h-0 border-t-[24px] border-l-[24px] border-l-transparent ${
+        className={`absolute top-0 left-0 w-0 h-0 border-t-[24px] border-r-[24px] border-r-transparent ${
           isSettlement ? "border-t-accent" : "border-t-positive"
         }`}
       />
