@@ -23,9 +23,13 @@ export default function TransactionCard({
   const toLine = isSettlement ? t.lines.find((l) => l.amount < 0) : null;
 
   return (
-    <div className={`bg-card rounded-xl p-4 space-y-3 border-l-3 ${
-      isSettlement ? "border-l-accent" : "border-l-positive"
-    }`}>
+    <div className="bg-card rounded-xl p-4 space-y-3 relative overflow-hidden">
+      {/* Corner triangle */}
+      <div
+        className={`absolute top-0 right-0 w-0 h-0 border-t-[24px] border-l-[24px] border-l-transparent ${
+          isSettlement ? "border-t-accent" : "border-t-positive"
+        }`}
+      />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
