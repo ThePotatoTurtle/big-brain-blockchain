@@ -896,6 +896,9 @@ export default function ReceiptForm() {
 
 // --- Item Row Component ---
 
+export { ReceiptItemRow };
+export type { ReceiptItem };
+
 function ReceiptItemRow({
   item,
   onUpdate,

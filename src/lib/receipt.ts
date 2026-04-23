@@ -1,6 +1,79 @@
 import { dollarsToCents, centsToDisplay } from "@/lib/utils";
 import { USERS } from "@/lib/users";
 
+export interface ParsedReceiptItem {
+  description: string;
+  quantity: number;
+  unitPrice: string;
+  totalPrice: string;
+  assignedUserIds: number[];
+}
+
+/**
+ * Detect whether a notes string came from the receipt scanner.
+ */
+export function isReceiptNotes(notes: string | null | undefined): boolean {
+  return !!notes && notes.includes("Receipt items:");
+}
+
+/**
+ * Parse a formatReceiptNotes() string back into receipt items.
+ * Returns null if the notes don't look like a receipt entry.
+ */
+export function parseReceiptNotes(notes: string): ParsedReceiptItem[] | null {
+  if (!isReceiptNotes(notes)) return null;
+
+  const lines = notes.split("\n");
+  const startIdx = lines.findIndex((l) => l === "Receipt items:");
+  if (startIdx === -1) return null;
+
+  const items: ParsedReceiptItem[] = [];
+  // e.g. "1. Sushi Roll (x2) $13.90 — Danny, Timmy"
+  // or   "1. Sushi Roll $13.90 — All"
+  const itemRe = /^\d+\. (.+?) \$(\S+) — (.+)$/;
+  const qtyRe = /^(.*?) \(x(\d+)\)$/;
+
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("Items subtotal:") || line === "---") break;
+
+    const m = itemRe.exec(line);
+    if (!m) continue;
+
+    let description = m[1];
+    const totalPrice = m[2];
+    const peopleStr = m[3];
+
+    // Extract optional (xN) quantity suffix from description
+    let quantity = 1;
+    const qm = qtyRe.exec(description);
+    if (qm) {
+      description = qm[1];
+      quantity = parseInt(qm[2]) || 1;
+    }
+
+    const unitPrice = quantity > 1
+      ? (dollarsToCents(totalPrice) / quantity / 100).toFixed(2)
+      : totalPrice;
+
+    let assignedUserIds: number[];
+    if (peopleStr === "All") {
+      assignedUserIds = USERS.map((u) => u.id);
+    } else {
+      assignedUserIds = peopleStr
+        .split(", ")
+        .flatMap((name) => {
+          const id = USERS.find((u) => u.name === name.trim())?.id;
+          return id !== undefined ? [id] : [];
+        });
+    }
+
+    items.push({ description, quantity, unitPrice, totalPrice, assignedUserIds });
+  }
+
+  return items.length > 0 ? items : null;
+}
+
 interface ProRataInput {
   items: { totalPriceCents: number; assignedUserIds: number[] }[];
   totalAmountCents: number;

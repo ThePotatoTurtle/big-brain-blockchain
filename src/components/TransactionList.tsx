@@ -3,8 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import type { TransactionWithDetails } from "@/lib/types";
 import TransactionCard from "./TransactionCard";
+import EditReceiptModal from "./EditReceiptModal";
 import { centsToDisplay, dollarsToCents, splitEvenly } from "@/lib/utils";
 import { USERS } from "@/lib/users";
+import { isReceiptNotes } from "@/lib/receipt";
 
 interface EditFormState {
   type: "expense" | "settlement";
@@ -155,11 +157,12 @@ export default function TransactionList({
   const [deleteTarget, setDeleteTarget] = useState<TransactionWithDetails | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Edit state
+  // Edit state — receipt entries get their own modal
   const [editTarget, setEditTarget] = useState<TransactionWithDetails | null>(null);
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState("");
+  const [receiptEditTarget, setReceiptEditTarget] = useState<TransactionWithDetails | null>(null);
 
   const hasMore = transactions.length < total;
 
@@ -189,9 +192,13 @@ export default function TransactionList({
   }, []);
 
   const handleEditClick = useCallback((t: TransactionWithDetails) => {
-    setEditTarget(t);
-    setEditForm(initEditForm(t));
-    setEditError("");
+    if (isReceiptNotes(t.notes)) {
+      setReceiptEditTarget(t);
+    } else {
+      setEditTarget(t);
+      setEditForm(initEditForm(t));
+      setEditError("");
+    }
   }, []);
 
   const confirmDelete = useCallback(async () => {
@@ -419,6 +426,19 @@ export default function TransactionList({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Receipt edit modal */}
+      {receiptEditTarget && (
+        <EditReceiptModal
+          transaction={receiptEditTarget}
+          onClose={() => setReceiptEditTarget(null)}
+          onSaved={(refreshed) => {
+            setTransactions(refreshed);
+            setTotal(refreshed.length);
+            setReceiptEditTarget(null);
+          }}
+        />
       )}
 
       {/* Edit modal */}
