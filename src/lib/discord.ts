@@ -9,6 +9,7 @@ interface ExpenseNotification {
   payers: { userId: number; amountCents: number }[];
   shares: { userId: number; amountCents: number }[];
   createdById: number;
+  imageUrls?: string[];
 }
 
 interface SettlementNotification {
@@ -20,6 +21,7 @@ interface SettlementNotification {
   toUserId: number;
   amountCents: number;
   createdById: number;
+  imageUrls?: string[];
 }
 
 interface DeletionNotification {
@@ -39,6 +41,7 @@ interface EditedExpenseNotification {
   payers: { userId: number; amountCents: number }[];
   shares: { userId: number; amountCents: number }[];
   createdById: number;
+  imageUrls?: string[];
 }
 
 interface EditedSettlementNotification {
@@ -50,18 +53,26 @@ interface EditedSettlementNotification {
   toUserId: number;
   amountCents: number;
   createdById: number;
+  imageUrls?: string[];
 }
 
 type TransactionNotification = ExpenseNotification | SettlementNotification | DeletionNotification | EditedExpenseNotification | EditedSettlementNotification;
+
+interface DiscordEmbed {
+  title: string;
+  color: number;
+  fields: { name: string; value: string; inline: boolean }[];
+  timestamp: string;
+  url?: string;
+  image?: { url: string };
+}
 
 function cents(n: number): string {
   const abs = Math.abs(n);
   return `$${(abs / 100).toFixed(2)}`;
 }
 
-function buildExpenseEmbed(data: ExpenseNotification) {
-  const creator = getUserById(data.createdById)?.name ?? "Someone";
-
+function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
   // Payers line
   const payerLines = data.payers.map((p) => {
     const name = getUserById(p.userId)?.name ?? "?";
@@ -95,15 +106,13 @@ function buildExpenseEmbed(data: ExpenseNotification) {
     title: `New expense: ${data.item}`,
     color: 0x3b82f6, // blue
     fields,
-    footer: { text: `Added by ${creator}` },
     timestamp: new Date().toISOString(),
   };
 }
 
-function buildSettlementEmbed(data: SettlementNotification) {
+function buildSettlementEmbed(data: SettlementNotification): DiscordEmbed {
   const from = getUserById(data.fromUserId)?.name ?? "?";
   const to = getUserById(data.toUserId)?.name ?? "?";
-  const creator = getUserById(data.createdById)?.name ?? "Someone";
 
   const fields = [
     { name: "From", value: from, inline: true },
@@ -120,12 +129,11 @@ function buildSettlementEmbed(data: SettlementNotification) {
     title: `Settlement: ${data.item}`,
     color: 0x10b981, // green
     fields,
-    footer: { text: `Added by ${creator}` },
     timestamp: new Date().toISOString(),
   };
 }
 
-function buildDeletionEmbed(data: DeletionNotification) {
+function buildDeletionEmbed(data: DeletionNotification): DiscordEmbed {
   const typeLabel = data.transactionType === "settlement" ? "Settlement" : "Expense";
   const fields = [
     { name: "Type", value: typeLabel, inline: true },
@@ -181,9 +189,32 @@ export async function sendDiscordNotification(
             ? buildExpenseEmbed(data)
             : buildSettlementEmbed(data);
 
+  const embeds: DiscordEmbed[] = [embed];
+
+  // Attach photos. One image goes straight on the main embed. For several,
+  // Discord merges multiple embeds that share one `url` into a single gallery.
+  const imageUrls = ("imageUrls" in data ? data.imageUrls : undefined) ?? [];
+  if (imageUrls.length === 1) {
+    embed.image = { url: imageUrls[0] };
+  } else if (imageUrls.length > 1) {
+    const galleryUrl = imageUrls[0];
+    embed.url = galleryUrl;
+    embed.image = { url: imageUrls[0] };
+    for (let i = 1; i < imageUrls.length && embeds.length < 4; i++) {
+      embeds.push({
+        title: "",
+        color: embed.color,
+        fields: [],
+        timestamp: embed.timestamp,
+        url: galleryUrl,
+        image: { url: imageUrls[i] },
+      });
+    }
+  }
+
   const payload = JSON.stringify({
     username: "Big Brain Blockchain",
-    embeds: [embed],
+    embeds,
   });
 
   // Retry up to 3 times (transient TLS/network errors are common)

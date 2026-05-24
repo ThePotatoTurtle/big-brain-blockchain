@@ -126,7 +126,7 @@ export default function TransactionCard({
 
       {/* Notes */}
       {t.notes && (
-        <p className="text-xs text-muted italic">{t.notes}</p>
+        <p className="text-xs text-muted italic whitespace-pre-line">{t.notes}</p>
       )}
 
       {/* Attachments */}

@@ -14,6 +14,16 @@ import type {
   TransactionLineDetail,
 } from "@/lib/types";
 
+/** Pick out image attachment URLs (Discord can only embed images, not PDFs). */
+function imageUrlsFrom(
+  attachments: { fileUrl: string; fileName: string }[] | undefined | null
+): string[] {
+  if (!attachments) return [];
+  return attachments
+    .filter((a) => /\.(png|jpe?g|gif|webp|bmp)$/i.test(a.fileName))
+    .map((a) => a.fileUrl);
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get("page") ?? "1");
@@ -212,6 +222,12 @@ export async function PUT(request: NextRequest) {
       });
     });
 
+    // Photos: use newly-uploaded ones if provided, else the entry's existing attachments.
+    const editAttachments = data.attachmentUrls
+      ? data.attachmentUrls
+      : await prisma.attachment.findMany({ where: { transactionId: id } });
+    const editImageUrls = imageUrlsFrom(editAttachments);
+
     // Send discord notification with full details
     if (data.type === "expense") {
       await sendDiscordNotification({
@@ -223,6 +239,7 @@ export async function PUT(request: NextRequest) {
         payers: data.payers,
         shares: data.shares,
         createdById: data.createdById,
+        imageUrls: editImageUrls,
       }).catch((e) => console.error("Discord edit notification error:", e));
     } else if (data.type === "settlement") {
       await sendDiscordNotification({
@@ -234,6 +251,7 @@ export async function PUT(request: NextRequest) {
         toUserId: data.toUserId,
         amountCents: data.amountCents,
         createdById: data.createdById,
+        imageUrls: editImageUrls,
       }).catch((e) => console.error("Discord edit notification error:", e));
     }
 
@@ -393,6 +411,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const postImageUrls = imageUrlsFrom(body.attachmentUrls);
     if (body.type === "expense") {
       notifications.push(
         sendDiscordNotification({
@@ -404,6 +423,7 @@ export async function POST(request: NextRequest) {
           payers: body.payers,
           shares: body.shares,
           createdById: body.createdById,
+          imageUrls: postImageUrls,
         }).catch((e) => console.error("Discord notification error:", e))
       );
     } else if (body.type === "settlement") {
@@ -417,6 +437,7 @@ export async function POST(request: NextRequest) {
           toUserId: body.toUserId,
           amountCents: body.amountCents,
           createdById: body.createdById,
+          imageUrls: postImageUrls,
         }).catch((e) => console.error("Discord notification error:", e))
       );
     }
