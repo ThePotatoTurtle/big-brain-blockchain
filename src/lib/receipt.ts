@@ -88,10 +88,16 @@ export interface ProRataShare {
 /**
  * Compute pro rata shares from item assignments.
  *
- * 1. For each item, split cost evenly among assigned people (floor + remainder).
- * 2. Sum each person's item costs → their "subtotal".
- * 3. Scale proportionally to totalAmountCents (handles tax/tip).
- * 4. Distribute remainder cents: primary payer first, then by fractional loss.
+ * Rounding happens ONCE, at the very end. Each item is split among its
+ * assignees as an exact fraction (no per-item rounding), so leftover cents
+ * never accumulate on whoever happens to be listed first. A single
+ * largest-remainder pass then rounds every person to whole cents such that
+ * the shares sum exactly to totalAmountCents.
+ *
+ * 1. For each item, add (price / nAssignees) — a fraction — to each assignee.
+ * 2. Scale every fractional subtotal proportionally to totalAmountCents.
+ * 3. Floor each, then hand out the few leftover cents to whoever was rounded
+ *    down the most (primary payer wins exact ties).
  *
  * Returns shares summing exactly to totalAmountCents.
  */
@@ -100,43 +106,40 @@ export function computeProRataShares(input: ProRataInput): ProRataShare[] {
 
   if (totalAmountCents <= 0) return [];
 
-  // Step 1 & 2: compute each person's item subtotal in cents
+  // Step 1: accumulate each person's EXACT (fractional) subtotal in cents.
+  // Splitting items as fractions defers all rounding to the final step.
   const personSubtotal = new Map<number, number>();
 
   for (const item of items) {
     if (item.assignedUserIds.length === 0 || item.totalPriceCents <= 0) continue;
-    const n = item.assignedUserIds.length;
-    const base = Math.floor(item.totalPriceCents / n);
-    const remainder = item.totalPriceCents - base * n;
-
-    for (let i = 0; i < n; i++) {
-      const uid = item.assignedUserIds[i];
-      const share = base + (i < remainder ? 1 : 0);
-      personSubtotal.set(uid, (personSubtotal.get(uid) ?? 0) + share);
+    const perPerson = item.totalPriceCents / item.assignedUserIds.length;
+    for (const uid of item.assignedUserIds) {
+      personSubtotal.set(uid, (personSubtotal.get(uid) ?? 0) + perPerson);
     }
   }
 
   const grandTotal = Array.from(personSubtotal.values()).reduce((s, c) => s + c, 0);
   if (grandTotal === 0) return [];
 
-  // Step 3: scale to actual total
+  // Step 2 & 3: scale to actual total, then floor and capture the lost fraction.
   const entries = Array.from(personSubtotal.entries());
-  const rawShares = entries.map(([userId, subtotal]) => ({
-    userId,
-    subtotal,
-    shareCents: Math.floor((subtotal / grandTotal) * totalAmountCents),
-    fractionalLoss: (subtotal / grandTotal) * totalAmountCents -
-      Math.floor((subtotal / grandTotal) * totalAmountCents),
-  }));
+  const rawShares = entries.map(([userId, subtotal]) => {
+    const exact = (subtotal / grandTotal) * totalAmountCents;
+    const shareCents = Math.floor(exact);
+    return { userId, shareCents, fractionalLoss: exact - shareCents };
+  });
 
-  // Step 4: distribute remainder cents
-  let distributed = rawShares.reduce((s, r) => s + r.shareCents, 0);
+  // Final (and only) rounding step: distribute the handful of leftover cents
+  // by largest fractional loss. Primary payer only breaks exact ties, so the
+  // same person no longer absorbs rounding on every item.
+  const distributed = rawShares.reduce((s, r) => s + r.shareCents, 0);
   let remainderCents = totalAmountCents - distributed;
 
   rawShares.sort((a, b) => {
+    if (b.fractionalLoss !== a.fractionalLoss) return b.fractionalLoss - a.fractionalLoss;
     if (a.userId === primaryPayerUserId) return -1;
     if (b.userId === primaryPayerUserId) return 1;
-    return b.fractionalLoss - a.fractionalLoss;
+    return 0;
   });
 
   for (let i = 0; remainderCents > 0 && i < rawShares.length; i++) {
