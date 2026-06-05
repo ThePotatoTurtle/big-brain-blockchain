@@ -29,7 +29,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Pick a random color scheme before first paint to avoid flicker. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=["midnight","plum","forest","rose","steel","indigo"];document.documentElement.setAttribute("data-theme",t[Math.floor(Math.random()*t.length)]);}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background text-foreground`}
       >

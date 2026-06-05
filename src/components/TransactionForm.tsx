@@ -387,7 +387,7 @@ export default function TransactionForm() {
       {/* Corner triangle */}
       <div
         className={`absolute top-0 left-0 w-0 h-0 border-t-[24px] border-r-[24px] border-r-transparent transition-colors ${
-          type === "settlement" ? "border-t-accent" : "border-t-positive"
+          type === "settlement" ? "border-t-corner-settlement" : "border-t-corner-expense"
         }`}
       />
       <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">

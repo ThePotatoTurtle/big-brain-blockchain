@@ -27,7 +27,7 @@ export default function TransactionCard({
       {/* Corner triangle */}
       <div
         className={`absolute top-0 left-0 w-0 h-0 border-t-[24px] border-r-[24px] border-r-transparent ${
-          isSettlement ? "border-t-accent" : "border-t-positive"
+          isSettlement ? "border-t-corner-settlement" : "border-t-corner-expense"
         }`}
       />
       {/* Header */}
