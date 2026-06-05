@@ -84,6 +84,39 @@
   --accent: #6366F1;
 }
 
+/* Gold (warm charcoal, amber accent) */
+:root[data-theme="gold"] {
+  --background: #161310;
+  --foreground: #FAF6EE;
+  --card: #262017;
+  --card-hover: #3A311F;
+  --border: #3A311F;
+  --muted: #BCA987;
+  --accent: #F59E0B;
+}
+
+/* Ember (sunset orange) */
+:root[data-theme="ember"] {
+  --background: #1A1210;
+  --foreground: #FDF1EC;
+  --card: #2C1D17;
+  --card-hover: #422C22;
+  --border: #422C22;
+  --muted: #C7A294;
+  --accent: #F97316;
+}
+
+/* Graphite (sleek monochrome slate) */
+:root[data-theme="graphite"] {
+  --background: #0E0F11;
+  --foreground: #ECEEF1;
+  --card: #1A1C1F;
+  --card-hover: #2A2D31;
+  --border: #2A2D31;
+  --muted: #9AA1AB;
+  --accent: #64748B;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
