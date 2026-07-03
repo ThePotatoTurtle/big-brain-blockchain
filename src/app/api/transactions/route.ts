@@ -135,6 +135,7 @@ export async function GET(request: NextRequest) {
         category: t.category,
         shares: (t.sharesJson as { userId: number; amountCents: number }[] | null) ?? null,
         payers: (t.payersJson as { userId: number; amountCents: number }[] | null) ?? null,
+        conversionBatchId: t.conversionBatchId,
       }));
     }
 
@@ -171,13 +172,23 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: lockError }, { status: 403 });
     }
 
-    // Delete — cascade removes lines and attachments automatically
-    await prisma.transaction.delete({ where: { id } });
+    // Currency conversions create a linked pair (foreign reversal + CAD add).
+    // Delete the whole batch together so balances don't double-count.
+    if (transaction.conversionBatchId) {
+      await prisma.transaction.deleteMany({
+        where: { conversionBatchId: transaction.conversionBatchId },
+      });
+    } else {
+      // Delete — cascade removes lines and attachments automatically
+      await prisma.transaction.delete({ where: { id } });
+    }
 
     // Send discord notification
     await sendDiscordNotification({
       type: "deletion",
-      item: transaction.item,
+      item: transaction.conversionBatchId
+        ? `${getTripBySlug(transaction.tripId ?? "")?.name ?? "Trip"} currency conversion`
+        : transaction.item,
       transactionType: transaction.type as "expense" | "settlement",
       totalAmountCents: transaction.totalAmountCents,
       date: transaction.date.toISOString().split("T")[0],

@@ -174,7 +174,7 @@ export default function TransactionCard({
             </span>
           )}
           {t.currency && t.currency !== "CAD" && (
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-accent/15 text-accent">
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-background text-muted">
               {t.currency}
             </span>
           )}

@@ -37,6 +37,7 @@ export interface TransactionWithDetails {
   category?: string | null;
   shares?: { userId: number; amountCents: number }[] | null; // gross shares (stats)
   payers?: { userId: number; amountCents: number }[] | null; // original payers
+  conversionBatchId?: string | null; // set on paired currency-conversion entries
 }
 
 export interface BalanceHistoryPoint {

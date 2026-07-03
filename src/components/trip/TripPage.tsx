@@ -33,6 +33,12 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
   const [transferring, setTransferring] = useState(false);
   const [transferError, setTransferError] = useState("");
 
+  // Convert-foreign-to-CAD modal (in-trip, does not transfer to main ledger)
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [convertRates, setConvertRates] = useState<Record<string, string>>({});
+  const [converting, setConverting] = useState(false);
+  const [convertError, setConvertError] = useState("");
+
   // Delete modal
   const [deleteTarget, setDeleteTarget] = useState<TransactionWithDetails | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -141,8 +147,49 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
     }
   };
 
+  const doConvert = async () => {
+    setConverting(true);
+    setConvertError("");
+    try {
+      const rates: Record<string, number> = {};
+      for (const fx of fxNeedingRates) {
+        const v = parseFloat(convertRates[fx.currency] ?? "");
+        if (!v || v <= 0) {
+          setConvertError(`Enter a valid ${fx.currency} rate`);
+          setConverting(false);
+          return;
+        }
+        rates[fx.currency] = v;
+      }
+      const res = await fetch(`/api/trips/${trip.slug}/convert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rates }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Conversion failed");
+      }
+      setConvertOpen(false);
+      setConvertRates({});
+      refresh();
+    } catch (err) {
+      setConvertError(err instanceof Error ? err.message : "Conversion failed");
+    } finally {
+      setConverting(false);
+    }
+  };
+
   const currencyOf = (code: string) =>
     trip.currencies.find((c) => c.code === code) ?? trip.currencies[0];
+
+  // Foreign currency codes configured for this trip (base = trip.currencies[0], i.e. CAD)
+  const foreignCodes = trip.currencies
+    .filter((c) => c.code !== trip.currencies[0].code)
+    .map((c) => c.code);
+
+  /** Currency-conversion records: deletable (removes the whole batch) but not editable. */
+  const isConversion = (t: TransactionWithDetails) => !!t.conversionBatchId;
 
   const members = trip.memberIds
     .map((id) => getUserById(id))
@@ -192,17 +239,27 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
 
       {/* ---- Balances (isolated from main) ---- */}
       <div className="bg-card rounded-xl p-4 md:p-6 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-2">
           <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
             Trip Balances
           </h2>
           {!locked && (
-            <button
-              onClick={() => setTransferOpen(true)}
-              className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors"
-            >
-              Transfer to main ledger
-            </button>
+            <div className="flex flex-col items-end gap-1.5">
+              <button
+                onClick={() => setTransferOpen(true)}
+                className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors whitespace-nowrap"
+              >
+                Transfer to main ledger
+              </button>
+              {foreignCodes.length > 0 && (
+                <button
+                  onClick={() => setConvertOpen(true)}
+                  className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors whitespace-nowrap"
+                >
+                  Convert {foreignCodes.join("/")} → CAD
+                </button>
+              )}
+            </div>
           )}
         </div>
         {!summary && <p className="text-xs text-muted">Loading...</p>}
@@ -394,20 +451,24 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
             <p className="text-muted text-sm">No entries yet.</p>
           </div>
         )}
-        {transactions.map((t) => (
-          <TransactionCard
-            key={t.id}
-            transaction={t}
-            onDelete={locked ? undefined : (id) => {
-              const target = transactions.find((tx) => tx.id === id);
-              if (target) setDeleteTarget(target);
-            }}
-            onEdit={locked ? undefined : (target) => {
-              if (isReceiptNotes(target.notes)) setReceiptEditTarget(target);
-              else setEditTarget(target);
-            }}
-          />
-        ))}
+        {transactions.map((t) => {
+          const conversion = isConversion(t);
+          return (
+            <TransactionCard
+              key={t.id}
+              transaction={t}
+              onDelete={locked ? undefined : (id) => {
+                const target = transactions.find((tx) => tx.id === id);
+                if (target) setDeleteTarget(target);
+              }}
+              // Conversions can be deleted but not edited (they're a linked pair)
+              onEdit={locked || conversion ? undefined : (target) => {
+                if (isReceiptNotes(target.notes)) setReceiptEditTarget(target);
+                else setEditTarget(target);
+              }}
+            />
+          );
+        })}
         {transactions.length < total && (
           <div className="py-2 text-center">
             <button
@@ -443,6 +504,81 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
             refresh();
           }}
         />
+      )}
+
+      {/* ---- Convert foreign → CAD modal ---- */}
+      {convertOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => !converting && setConvertOpen(false)}
+        >
+          <div
+            className="bg-card rounded-xl p-6 mx-4 max-w-sm w-full space-y-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold">
+              Convert {foreignCodes.join("/")} balances to CAD?
+            </h3>
+            {fxNeedingRates.length === 0 ? (
+              <p className="text-sm text-muted">
+                No {foreignCodes.join("/")} balances to convert right now — all foreign balances
+                are already at zero.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted">
+                  Current{" "}
+                  <span className="text-foreground font-medium">
+                    {fxNeedingRates.map((fx) => fx.currency).join("/")}
+                  </span>{" "}
+                  balances will be set to 0 and moved into this trip&apos;s{" "}
+                  <span className="text-foreground font-medium">CAD</span> balance. Nothing is sent
+                  to the main ledger — you can settle or transfer the CAD balance later.
+                </p>
+                {fxNeedingRates.map((fx) => (
+                  <div key={fx.currency}>
+                    <label className="block text-xs text-muted mb-1">
+                      CAD{fx.currency} rate ({fx.currency} per 1 CAD)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={convertRates[fx.currency] ?? ""}
+                      onChange={(e) =>
+                        setConvertRates((prev) => ({ ...prev, [fx.currency]: e.target.value }))
+                      }
+                      placeholder={fx.currency === "JPY" ? "e.g. 113.55" : "rate"}
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                    />
+                  </div>
+                ))}
+              </>
+            )}
+            {convertError && (
+              <div className="text-negative text-sm bg-negative/10 rounded-lg px-3 py-2">
+                {convertError}
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConvertOpen(false)}
+                disabled={converting}
+                className="px-4 py-2 text-sm rounded-lg bg-background text-foreground hover:bg-muted/20 transition-colors"
+              >
+                {fxNeedingRates.length === 0 ? "Close" : "Cancel"}
+              </button>
+              {fxNeedingRates.length > 0 && (
+                <button
+                  onClick={doConvert}
+                  disabled={converting}
+                  className="px-4 py-2 text-sm rounded-lg bg-accent text-white font-medium hover:bg-accent/90 transition-colors disabled:opacity-50"
+                >
+                  {converting ? "Converting..." : "Convert to CAD"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ---- Transfer confirmation modal ---- */}
@@ -513,11 +649,22 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
             className="bg-card rounded-xl p-6 mx-4 max-w-sm w-full space-y-4 shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-base font-semibold">Delete entry?</h3>
+            <h3 className="text-base font-semibold">
+              {isConversion(deleteTarget) ? "Delete conversion?" : "Delete entry?"}
+            </h3>
             <p className="text-sm text-muted">
-              This will permanently delete{" "}
-              <span className="text-foreground font-medium">{deleteTarget.item}</span> and update
-              trip balances.
+              {isConversion(deleteTarget) ? (
+                <>
+                  This undoes the currency conversion — both the foreign reversal and the CAD
+                  entry are removed together, restoring the original foreign balances.
+                </>
+              ) : (
+                <>
+                  This will permanently delete{" "}
+                  <span className="text-foreground font-medium">{deleteTarget.item}</span> and
+                  update trip balances.
+                </>
+              )}
             </p>
             <div className="flex gap-3 justify-end">
               <button

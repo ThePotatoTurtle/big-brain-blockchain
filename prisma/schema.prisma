@@ -47,8 +47,12 @@ model Transaction {
   category      String?
   sharesJson    Json?   // gross shares [{userId, amountCents}] for per-person stats
   payersJson    Json?   // original payers [{userId, amountCents}]
+  // Links the paired transactions of a currency conversion (reversal + CAD add)
+  // so deleting one deletes the whole batch (prevents double-counting).
+  conversionBatchId String?
 
   @@index([tripId])
+  @@index([conversionBatchId])
 }
 
 // Per-trip state (e.g. locked after balance transfer to main ledger)
