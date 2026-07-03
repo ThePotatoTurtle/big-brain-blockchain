@@ -251,7 +251,7 @@ export default function TripEntryForm({
     : totalMinor;
   const payersMatch = isMultiPayer ? totalMinor > 0 && payersSum === totalMinor : true;
 
-  const methodValue = method === "Others" ? methodOther.trim() : method;
+  const methodValue = method === "Other" ? methodOther.trim() : method;
 
   // NOTE: self-entries are allowed on trips (payer can be the only share)
   const canSubmitExpense =
@@ -501,12 +501,12 @@ export default function TripEntryForm({
                   </option>
                 ))}
               </select>
-              {method === "Others" && (
+              {method === "Other" && (
                 <input
                   type="text"
                   value={methodOther}
                   onChange={(e) => setMethodOther(e.target.value)}
-                  placeholder="Fill in method..."
+                  placeholder="Other method..."
                   className={`${inputCls} mt-1.5`}
                 />
               )}

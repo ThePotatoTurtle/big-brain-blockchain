@@ -248,7 +248,7 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
           );
         })}
         <p className="text-[11px] text-muted italic">
-          Isolated from the main ledger — settle within the trip or transfer at the end.
+          Separate from the main ledger — settle within the trip or transfer at the end.
         </p>
       </div>
 

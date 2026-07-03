@@ -27,5 +27,5 @@ export const japan2026: TripConfig = {
     "Transportation",
     "Others",
   ],
-  paymentMethods: ["Credit card", "Cash", "Others"],
+  paymentMethods: ["Card", "Cash", "Other"],
 };
