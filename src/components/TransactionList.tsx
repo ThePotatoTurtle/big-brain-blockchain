@@ -465,7 +465,9 @@ export default function TransactionList({
                 />
               </div>
               <div>
-                <label className="block text-xs text-muted mb-1">Item</label>
+                <label className="block text-xs text-muted mb-1">
+                  {ef.type === "settlement" ? "Method" : "Item"}
+                </label>
                 <input
                   type="text"
                   value={ef.item}

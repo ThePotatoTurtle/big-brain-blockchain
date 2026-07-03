@@ -454,7 +454,9 @@ export default function TripEntryForm({
             />
           </div>
           <div>
-            <label className="block text-xs text-muted mb-1">Item</label>
+            <label className="block text-xs text-muted mb-1">
+              {type === "settlement" ? "Method" : "Item"}
+            </label>
             <input
               type="text"
               value={item}
@@ -489,11 +491,14 @@ export default function TripEntryForm({
               <label className="block text-xs text-muted mb-1">Payment method (optional)</label>
               <select
                 value={method}
-                onChange={(e) => setMethod(e.target.value)}
+                onChange={(e) => {
+                  setMethod(e.target.value);
+                  if (e.target.value === "") setMethodOther("");
+                }}
                 className={`${inputCls} ${method === "" ? "text-muted" : ""}`}
               >
-                <option value="" disabled>
-                  Select...
+                <option value="">
+                  N/A
                 </option>
                 {trip.paymentMethods.map((m) => (
                   <option key={m} value={m}>
@@ -509,6 +514,11 @@ export default function TripEntryForm({
                   placeholder="Other method..."
                   className={`${inputCls} mt-1.5`}
                 />
+              )}
+              {method !== "" && method !== "Cash" && currency.code !== trip.currencies[0].code && (
+                <p className="text-xs text-amber-400 mt-1.5">
+                  If paying by card, record the actual amount settled in CAD after forex.
+                </p>
               )}
             </div>
           </div>

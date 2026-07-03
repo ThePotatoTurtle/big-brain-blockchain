@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import ThemePicker from "./ThemePicker";
 
 const tabs = [
   {
@@ -58,43 +59,53 @@ export default function Navigation() {
   return (
     <>
       {/* Mobile top title bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-center px-4 py-2 bg-card border-b border-border">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2 bg-card border-b border-border">
         <Link href="/" className="text-sm font-bold text-muted">Big Brain Blockchain</Link>
+        <ThemePicker />
       </div>
 
       {/* Desktop top nav */}
       <nav className="hidden md:flex items-center justify-between px-6 py-3 bg-card border-b border-border">
         <Link href="/" className="text-lg font-bold text-muted">Big Brain Blockchain</Link>
-        <div className="flex gap-1">
-          {tabs.map((tab) => {
-            const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-accent/20 text-accent"
-                    : "text-muted hover:text-foreground hover:bg-card-hover"
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </Link>
-            );
-          })}
+        <div className="flex items-center gap-3">
+          <div
+            className="grid gap-1"
+            style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+          >
+            {tabs.map((tab) => {
+              const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
+              return (
+                <Link
+                  key={tab.href}
+                  href={tab.href}
+                  className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                    active
+                      ? "bg-accent/20 text-accent"
+                      : "text-muted hover:text-foreground hover:bg-card-hover"
+                  }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </Link>
+              );
+            })}
+          </div>
+          <ThemePicker />
         </div>
       </nav>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around bg-card border-t border-border px-2 py-2 safe-area-bottom">
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-50 grid bg-card border-t border-border px-2 py-2 safe-area-bottom"
+        style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+      >
         {tabs.map((tab) => {
           const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
           return (
             <Link
               key={tab.href}
               href={tab.href}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 active
                   ? "text-accent"
                   : "text-muted"

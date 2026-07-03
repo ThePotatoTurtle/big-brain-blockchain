@@ -31,10 +31,15 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Pick a random color scheme before first paint to avoid flicker. */}
+        {/*
+          Apply the user's saved theme (if any, and not expired) before first
+          paint to avoid flicker. Falls back to a random pick when no
+          preference is stored — mirrors THEMES/THEME_STORAGE_KEY/THEME_TTL_MS
+          in src/lib/themes.ts (kept inline since this runs pre-hydration).
+        */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=["midnight","plum","forest","rose","steel","indigo","gold","ember","graphite"];document.documentElement.setAttribute("data-theme",t[Math.floor(Math.random()*t.length)]);}catch(e){}})();`,
+            __html: `(function(){try{var t=["midnight","plum","forest","rose","steel","indigo","gold","ember","graphite"];var k="bbb-theme";var theme=null;var raw=localStorage.getItem(k);if(raw){var d=JSON.parse(raw);if(d&&d.theme&&d.expires&&Date.now()<d.expires&&t.indexOf(d.theme)!==-1){theme=d.theme;}else{localStorage.removeItem(k);}}if(!theme){theme=t[Math.floor(Math.random()*t.length)];}document.documentElement.setAttribute("data-theme",theme);}catch(e){}})();`,
           }}
         />
       </head>

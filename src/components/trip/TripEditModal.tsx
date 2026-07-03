@@ -209,7 +209,9 @@ export default function TripEditModal({
               className={`${inputCls} appearance-none`} />
           </div>
           <div>
-            <label className="block text-xs text-muted mb-1">Item</label>
+            <label className="block text-xs text-muted mb-1">
+              {isSettlement ? "Method" : "Item"}
+            </label>
             <input type="text" value={item} onChange={(e) => setItem(e.target.value)} className={inputCls} />
           </div>
         </div>

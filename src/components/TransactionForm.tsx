@@ -431,7 +431,9 @@ export default function TransactionForm() {
             />
           </div>
           <div>
-            <label className="block text-xs text-muted mb-1">Item</label>
+            <label className="block text-xs text-muted mb-1">
+              {type === "settlement" ? "Method" : "Item"}
+            </label>
             <input
               type="text"
               value={item}
