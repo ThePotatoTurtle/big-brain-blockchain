@@ -5,7 +5,7 @@ import BalanceChart from "@/components/BalanceChart";
 
 async function getHistoryData(): Promise<BalanceHistoryPoint[]> {
   const transactions = await prisma.transaction.findMany({
-    where: { status: "confirmed" },
+    where: { status: "confirmed", tripId: null },
     include: { lines: true },
     orderBy: [{ date: "asc" }, { createdAt: "asc" }],
   });

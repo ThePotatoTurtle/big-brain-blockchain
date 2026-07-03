@@ -9,7 +9,7 @@ async function getBalances(): Promise<Balance[]> {
     by: ["userId"],
     _sum: { amount: true },
     where: {
-      transaction: { status: "confirmed" },
+      transaction: { status: "confirmed", tripId: null },
     },
   });
 

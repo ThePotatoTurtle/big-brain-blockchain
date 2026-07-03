@@ -39,6 +39,22 @@ model Transaction {
   updatedAt   DateTime          @updatedAt
   lines       TransactionLine[]
   attachments Attachment[]
+
+  // Trip fields (null for main-ledger entries)
+  tripId        String? // trip slug, e.g. "japan2026"
+  currency      String  @default("CAD") // minor units: CAD cents, JPY yen
+  paymentMethod String?
+  category      String?
+  sharesJson    Json?   // gross shares [{userId, amountCents}] for per-person stats
+  payersJson    Json?   // original payers [{userId, amountCents}]
+
+  @@index([tripId])
+}
+
+// Per-trip state (e.g. locked after balance transfer to main ledger)
+model TripMeta {
+  slug          String    @id
+  transferredAt DateTime?
 }
 
 model TransactionLine {

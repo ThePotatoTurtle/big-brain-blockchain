@@ -5,9 +5,9 @@ import type { BalanceHistoryPoint } from "@/lib/types";
 
 export async function GET() {
   try {
-    // Fetch all confirmed transactions with lines, ordered by date
+    // Fetch all confirmed MAIN-ledger transactions with lines (trips are isolated)
     const transactions = await prisma.transaction.findMany({
-      where: { status: "confirmed" },
+      where: { status: "confirmed", tripId: null },
       include: {
         lines: true,
       },

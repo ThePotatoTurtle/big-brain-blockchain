@@ -5,12 +5,12 @@ import type { Balance } from "@/lib/types";
 
 export async function GET() {
   try {
-    // Sum all confirmed transaction lines per user
+    // Sum all confirmed MAIN-ledger transaction lines per user (trips are isolated)
     const results = await prisma.transactionLine.groupBy({
       by: ["userId"],
       _sum: { amount: true },
       where: {
-        transaction: { status: "confirmed" },
+        transaction: { status: "confirmed", tripId: null },
       },
     });
 

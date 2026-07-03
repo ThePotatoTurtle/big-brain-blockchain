@@ -8,11 +8,12 @@ async function getTransactions() {
   // adds ~10s per extra include. Query separately and merge in application code.
   // Sequential queries - PrismaPg adapter doesn't handle concurrent queries well
   const baseTransactions = await prisma.transaction.findMany({
+    where: { tripId: null }, // main ledger only — trips have their own pages
     include: { createdBy: true },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     take: 20,
   });
-  const total = await prisma.transaction.count();
+  const total = await prisma.transaction.count({ where: { tripId: null } });
 
   if (baseTransactions.length === 0) {
     return { transactions: [] as TransactionWithDetails[], total };

@@ -30,6 +30,13 @@ export interface TransactionWithDetails {
   lines: TransactionLineDetail[];
   attachments: AttachmentDetail[];
   createdAt: string;
+  // Trip fields (null/absent for main-ledger entries)
+  tripId?: string | null;
+  currency?: string; // "CAD" (default) or another trip currency code
+  paymentMethod?: string | null;
+  category?: string | null;
+  shares?: { userId: number; amountCents: number }[] | null; // gross shares (stats)
+  payers?: { userId: number; amountCents: number }[] | null; // original payers
 }
 
 export interface BalanceHistoryPoint {
@@ -37,8 +44,16 @@ export interface BalanceHistoryPoint {
   [userName: string]: number | string;
 }
 
+// Optional trip metadata accepted on create/update requests
+export interface TripEntryFields {
+  tripId?: string;
+  currency?: string;
+  paymentMethod?: string;
+  category?: string;
+}
+
 // API request types
-export interface CreateExpenseRequest {
+export interface CreateExpenseRequest extends TripEntryFields {
   date: string;
   item: string;
   notes?: string;
@@ -49,7 +64,7 @@ export interface CreateExpenseRequest {
   attachmentUrls?: { fileUrl: string; fileName: string }[];
 }
 
-export interface CreateSettlementRequest {
+export interface CreateSettlementRequest extends TripEntryFields {
   date: string;
   item: string;
   notes?: string;

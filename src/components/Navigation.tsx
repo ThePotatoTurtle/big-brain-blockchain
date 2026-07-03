@@ -41,6 +41,15 @@ const tabs = [
       </svg>
     ),
   },
+  {
+    href: "/trips",
+    label: "Trips",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      </svg>
+    ),
+  },
 ];
 
 export default function Navigation() {
@@ -58,7 +67,7 @@ export default function Navigation() {
         <Link href="/" className="text-lg font-bold text-muted">Big Brain Blockchain</Link>
         <div className="flex gap-1">
           {tabs.map((tab) => {
-            const active = pathname === tab.href;
+            const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
             return (
               <Link
                 key={tab.href}
@@ -80,7 +89,7 @@ export default function Navigation() {
       {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around bg-card border-t border-border px-2 py-2 safe-area-bottom">
         {tabs.map((tab) => {
-          const active = pathname === tab.href;
+          const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
           return (
             <Link
               key={tab.href}

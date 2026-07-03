@@ -1,4 +1,4 @@
-import { dollarsToCents, centsToDisplay } from "@/lib/utils";
+import { centsToDisplay } from "@/lib/utils";
 import { USERS } from "@/lib/users";
 
 export interface ParsedReceiptItem {
@@ -19,8 +19,12 @@ export function isReceiptNotes(notes: string | null | undefined): boolean {
 /**
  * Parse a formatReceiptNotes() string back into receipt items.
  * Returns null if the notes don't look like a receipt entry.
+ * `decimals` matches the entry's currency (2 for CAD, 0 for JPY).
  */
-export function parseReceiptNotes(notes: string): ParsedReceiptItem[] | null {
+export function parseReceiptNotes(
+  notes: string,
+  decimals = 2
+): ParsedReceiptItem[] | null {
   if (!isReceiptNotes(notes)) return null;
 
   const lines = notes.split("\n");
@@ -29,8 +33,8 @@ export function parseReceiptNotes(notes: string): ParsedReceiptItem[] | null {
 
   const items: ParsedReceiptItem[] = [];
   // e.g. "1. Sushi Roll (x2) $13.90 — Danny, Timmy"
-  // or   "1. Sushi Roll $13.90 — All"
-  const itemRe = /^\d+\. (.+?) \$(\S+) — (.+)$/;
+  // or   "1. Tonkotsu Ramen ¥1,250 — All"
+  const itemRe = /^\d+\. (.+?) [$¥]([\d,.]+) — (.+)$/;
   const qtyRe = /^(.*?) \(x(\d+)\)$/;
 
   for (let i = startIdx + 1; i < lines.length; i++) {
@@ -41,7 +45,7 @@ export function parseReceiptNotes(notes: string): ParsedReceiptItem[] | null {
     if (!m) continue;
 
     let description = m[1];
-    const totalPrice = m[2];
+    const totalPrice = m[2].replace(/,/g, "");
     const peopleStr = m[3];
 
     // Extract optional (xN) quantity suffix from description
@@ -52,8 +56,10 @@ export function parseReceiptNotes(notes: string): ParsedReceiptItem[] | null {
       quantity = parseInt(qm[2]) || 1;
     }
 
+    const factor = Math.pow(10, decimals);
+    const totalMinor = Math.round(parseFloat(totalPrice) * factor);
     const unitPrice = quantity > 1
-      ? (dollarsToCents(totalPrice) / quantity / 100).toFixed(2)
+      ? (totalMinor / quantity / factor).toFixed(decimals)
       : totalPrice;
 
     let assignedUserIds: number[];
@@ -162,8 +168,18 @@ export function formatReceiptNotes(
   itemsSubtotalCents: number,
   totalAmountCents: number,
   userNotes?: string,
+  /** Currency formatting override (e.g. JPY). Defaults to CAD dollars. */
+  currency?: { symbol: string; decimals: number },
 ): string {
   const lines: string[] = [];
+  const sym = currency?.symbol ?? "$";
+  const fmt = (minor: number) =>
+    currency
+      ? `${sym}${(Math.abs(minor) / Math.pow(10, currency.decimals)).toLocaleString("en-US", {
+          minimumFractionDigits: currency.decimals,
+          maximumFractionDigits: currency.decimals,
+        })}`
+      : centsToDisplay(minor);
 
   if (userNotes?.trim()) {
     lines.push(userNotes.trim());
@@ -175,10 +191,10 @@ export function formatReceiptNotes(
     const qty = item.quantity > 1 ? ` (x${item.quantity})` : "";
     const names = item.assignedUserIds.map((id) => USERS.find((u) => u.id === id)?.name ?? "?");
     const people = names.length === USERS.length ? "All" : names.join(", ");
-    lines.push(`${i + 1}. ${item.description}${qty} $${item.totalPrice} — ${people}`);
+    lines.push(`${i + 1}. ${item.description}${qty} ${sym}${item.totalPrice} — ${people}`);
   });
 
-  lines.push(`Items subtotal: ${centsToDisplay(itemsSubtotalCents)}`);
+  lines.push(`Items subtotal: ${fmt(itemsSubtotalCents)}`);
 
   if (itemsSubtotalCents > 0 && totalAmountCents !== itemsSubtotalCents) {
     const markup = ((totalAmountCents / itemsSubtotalCents - 1) * 100).toFixed(1);
@@ -188,7 +204,7 @@ export function formatReceiptNotes(
   lines.push("---");
   const splitParts = shares.map((s) => {
     const name = USERS.find((u) => u.id === s.userId)?.name ?? "?";
-    return `${name} ${centsToDisplay(s.amountCents)}`;
+    return `${name} ${fmt(s.amountCents)}`;
   });
   lines.push(`Split: ${splitParts.join(", ")}`);
 

@@ -1,0 +1,11 @@
+import type { TripConfig } from "./types";
+import { japan2026 } from "./japan2026";
+
+/** All trips, in display order. Register new trip configs here. */
+export const TRIPS: TripConfig[] = [japan2026];
+
+export function getTripBySlug(slug: string): TripConfig | undefined {
+  return TRIPS.find((t) => t.slug === slug);
+}
+
+export * from "./types";

@@ -15,8 +15,19 @@ export default function TransactionCard({
 }) {
   const isSettlement = t.type === "settlement";
 
+  // Currency-aware amount formatting (JPY = whole yen; default CAD cents)
+  const fmt = (n: number) => {
+    if (t.currency === "JPY") {
+      return `${n < 0 ? "-" : ""}¥${Math.abs(n).toLocaleString("en-US")}`;
+    }
+    return centsToDisplay(n);
+  };
+
   // For expenses: find all payers (positive amount lines)
   const payerLines = t.lines.filter((l) => l.amount > 0);
+
+  // Self entry (trip): no balance lines — payer(s) equal the shares exactly
+  const isSelfEntry = !isSettlement && t.lines.length === 0 && !!t.shares?.length;
 
   // For settlements
   const fromLine = isSettlement ? t.lines.find((l) => l.amount > 0) : null;
@@ -75,13 +86,38 @@ export default function TransactionCard({
             {toLine.userName}
           </span>
           <span className="ml-auto font-mono font-semibold">
-            {centsToDisplay(fromLine.amount)}
+            {fmt(fromLine.amount)}
           </span>
         </div>
       )}
 
+      {/* Self entry (no balance impact) */}
+      {isSelfEntry && (
+        <div className="space-y-1.5">
+          {(t.shares ?? []).map((s) => {
+            const user = getUserById(s.userId);
+            return (
+              <div key={s.userId} className="flex items-center gap-2 text-sm">
+                <div
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: user?.color ?? "#6B7280" }}
+                />
+                <span className="text-sm">{user?.name}</span>
+                <span className="text-xs text-muted italic">paid for themselves</span>
+                <span className="ml-auto font-mono text-xs font-semibold text-muted">
+                  {fmt(s.amountCents)}
+                </span>
+              </div>
+            );
+          })}
+          <p className="text-[11px] text-muted italic">
+            Self entry — counted in stats, no balance change.
+          </p>
+        </div>
+      )}
+
       {/* Expense display */}
-      {!isSettlement && (
+      {!isSettlement && !isSelfEntry && (
         <div className="space-y-1.5">
           {payerLines.length > 0 && (
             <div className="text-xs text-muted mb-1">
@@ -95,7 +131,7 @@ export default function TransactionCard({
               ))}{" "}
               paid{" "}
               <span className="font-mono">
-                {centsToDisplay(
+                {fmt(
                   t.totalAmountCents ?? payerLines.reduce((s, l) => s + l.amount, 0)
                 )}
               </span>
@@ -116,11 +152,32 @@ export default function TransactionCard({
                   }`}
                 >
                   {l.amount > 0 ? "+" : ""}
-                  {centsToDisplay(l.amount)}
+                  {fmt(l.amount)}
                 </span>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Trip metadata chips */}
+      {(t.category || t.paymentMethod || (t.currency && t.currency !== "CAD")) && (
+        <div className="flex gap-1.5 flex-wrap">
+          {t.category && (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-background text-muted">
+              {t.category}
+            </span>
+          )}
+          {t.paymentMethod && (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-background text-muted">
+              {t.paymentMethod}
+            </span>
+          )}
+          {t.currency && t.currency !== "CAD" && (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-accent/15 text-accent">
+              {t.currency}
+            </span>
+          )}
         </div>
       )}
 

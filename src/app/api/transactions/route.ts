@@ -8,11 +8,48 @@ import {
 } from "@/lib/transactions";
 import { sendExpenseNotifications } from "@/lib/email";
 import { sendDiscordNotification } from "@/lib/discord";
+import { getTripBySlug } from "@/lib/trips";
 import type {
   CreateTransactionRequest,
   TransactionWithDetails,
   TransactionLineDetail,
 } from "@/lib/types";
+
+/**
+ * Validate trip fields on a create/update request. Returns an error string,
+ * or null if valid. Trips lock after their balances transfer to the main ledger.
+ */
+async function checkTrip(body: {
+  tripId?: string;
+  currency?: string;
+  category?: string;
+}): Promise<string | null> {
+  if (!body.tripId) return null;
+  const trip = getTripBySlug(body.tripId);
+  if (!trip) return `Unknown trip: ${body.tripId}`;
+  if (body.currency && !trip.currencies.some((c) => c.code === body.currency)) {
+    return `Currency ${body.currency} not enabled for ${trip.name}`;
+  }
+  if (body.category && !trip.categories.includes(body.category)) {
+    return `Unknown category: ${body.category}`;
+  }
+  const meta = await prisma.tripMeta.findUnique({ where: { slug: body.tripId } });
+  if (meta?.transferredAt) {
+    return `${trip.name} is locked (balances were transferred to the main ledger)`;
+  }
+  return null;
+}
+
+/** Locked-trip guard for edits/deletes of an existing transaction. */
+async function checkExistingTripLock(tripId: string | null): Promise<string | null> {
+  if (!tripId) return null;
+  const meta = await prisma.tripMeta.findUnique({ where: { slug: tripId } });
+  if (meta?.transferredAt) {
+    const trip = getTripBySlug(tripId);
+    return `${trip?.name ?? tripId} is locked (balances were transferred to the main ledger)`;
+  }
+  return null;
+}
 
 /** Pick out image attachment URLs (Discord can only embed images, not PDFs). */
 function imageUrlsFrom(
@@ -29,17 +66,21 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") ?? "1");
   const limit = parseInt(searchParams.get("limit") ?? "20");
   const skip = (page - 1) * limit;
+  // trip=<slug> returns that trip's entries; otherwise main ledger only
+  const tripId = searchParams.get("trip");
 
   try {
     // Workaround: Prisma 7 PrismaPg adapter is extremely slow with concurrent queries
     // and multiple includes. Query sequentially and merge in application code.
+    const where = { tripId: tripId ?? null };
     const baseTransactions = await prisma.transaction.findMany({
+      where,
       include: { createdBy: true },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       skip,
       take: limit,
     });
-    const total = await prisma.transaction.count();
+    const total = await prisma.transaction.count({ where });
 
     let formatted: TransactionWithDetails[] = [];
     if (baseTransactions.length > 0) {
@@ -88,6 +129,12 @@ export async function GET(request: NextRequest) {
           fileName: a.fileName,
         })),
         createdAt: t.createdAt.toISOString(),
+        tripId: t.tripId,
+        currency: t.currency,
+        paymentMethod: t.paymentMethod,
+        category: t.category,
+        shares: (t.sharesJson as { userId: number; amountCents: number }[] | null) ?? null,
+        payers: (t.payersJson as { userId: number; amountCents: number }[] | null) ?? null,
       }));
     }
 
@@ -119,6 +166,11 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
 
+    const lockError = await checkExistingTripLock(transaction.tripId);
+    if (lockError) {
+      return NextResponse.json({ error: lockError }, { status: 403 });
+    }
+
     // Delete — cascade removes lines and attachments automatically
     await prisma.transaction.delete({ where: { id } });
 
@@ -129,6 +181,8 @@ export async function DELETE(request: NextRequest) {
       transactionType: transaction.type as "expense" | "settlement",
       totalAmountCents: transaction.totalAmountCents,
       date: transaction.date.toISOString().split("T")[0],
+      tripName: transaction.tripId ? getTripBySlug(transaction.tripId)?.name : undefined,
+      currency: transaction.currency,
     }).catch((e) => console.error("Discord deletion notification error:", e));
 
     return NextResponse.json({ success: true });
@@ -150,6 +204,21 @@ export async function PUT(request: NextRequest) {
     const existing = await prisma.transaction.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+    }
+
+    const lockError = await checkExistingTripLock(existing.tripId);
+    if (lockError) {
+      return NextResponse.json({ error: lockError }, { status: 403 });
+    }
+    if (data.currency || data.category) {
+      const tripError = await checkTrip({
+        tripId: existing.tripId ?? undefined,
+        currency: data.currency,
+        category: data.category,
+      });
+      if (tripError) {
+        return NextResponse.json({ error: tripError }, { status: 400 });
+      }
     }
 
     let lines;
@@ -212,6 +281,12 @@ export async function PUT(request: NextRequest) {
           notes: data.notes ?? null,
           totalAmountCents: data.type === "expense" ? data.totalAmountCents : data.amountCents,
           createdById: data.createdById,
+          // Trip metadata: only overwrite when provided, otherwise keep existing
+          currency: data.currency ?? undefined,
+          paymentMethod: data.paymentMethod ?? undefined,
+          category: data.category ?? undefined,
+          sharesJson: data.type === "expense" ? data.shares : undefined,
+          payersJson: data.type === "expense" ? data.payers : undefined,
           lines: {
             create: lines.map((l) => ({ userId: l.userId, amount: l.amount })),
           },
@@ -228,6 +303,9 @@ export async function PUT(request: NextRequest) {
       : await prisma.attachment.findMany({ where: { transactionId: id } });
     const editImageUrls = imageUrlsFrom(editAttachments);
 
+    const editTripName = existing.tripId ? getTripBySlug(existing.tripId)?.name : undefined;
+    const editCurrency = data.currency ?? existing.currency;
+
     // Send discord notification with full details
     if (data.type === "expense") {
       await sendDiscordNotification({
@@ -240,6 +318,8 @@ export async function PUT(request: NextRequest) {
         shares: data.shares,
         createdById: data.createdById,
         imageUrls: editImageUrls,
+        tripName: editTripName,
+        currency: editCurrency,
       }).catch((e) => console.error("Discord edit notification error:", e));
     } else if (data.type === "settlement") {
       await sendDiscordNotification({
@@ -252,6 +332,8 @@ export async function PUT(request: NextRequest) {
         amountCents: data.amountCents,
         createdById: data.createdById,
         imageUrls: editImageUrls,
+        tripName: editTripName,
+        currency: editCurrency,
       }).catch((e) => console.error("Discord edit notification error:", e));
     }
 
@@ -265,6 +347,17 @@ export async function PUT(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body: CreateTransactionRequest = await request.json();
+
+    const tripError = await checkTrip(body);
+    if (tripError) {
+      return NextResponse.json({ error: tripError }, { status: 400 });
+    }
+    if (body.tripId && body.type === "expense" && !body.category) {
+      return NextResponse.json(
+        { error: "Category is required for trip expenses" },
+        { status: 400 }
+      );
+    }
 
     let lines;
     let item = body.item;
@@ -350,6 +443,12 @@ export async function POST(request: NextRequest) {
           totalAmountCents:
             body.type === "expense" ? body.totalAmountCents : body.amountCents,
           createdById: body.createdById,
+          tripId: body.tripId ?? null,
+          currency: body.currency ?? "CAD",
+          paymentMethod: body.paymentMethod ?? null,
+          category: body.category ?? null,
+          sharesJson: body.type === "expense" ? body.shares : undefined,
+          payersJson: body.type === "expense" ? body.payers : undefined,
           lines: {
             create: lines.map((l) => ({
               userId: l.userId,
@@ -379,11 +478,12 @@ export async function POST(request: NextRequest) {
     // Send notifications (must await — Vercel freezes the function after response)
     const notifications: Promise<unknown>[] = [];
 
-    if (body.type === "expense") {
+    // Email notifications reference the MAIN balance, so skip them for trip entries
+    if (body.type === "expense" && !body.tripId) {
       const balanceResults = await prisma.transactionLine.groupBy({
         by: ["userId"],
         _sum: { amount: true },
-        where: { transaction: { status: "confirmed" } },
+        where: { transaction: { status: "confirmed", tripId: null } },
       });
       const balanceMap = new Map<number, number>();
       for (const r of balanceResults) {
@@ -412,6 +512,7 @@ export async function POST(request: NextRequest) {
     }
 
     const postImageUrls = imageUrlsFrom(body.attachmentUrls);
+    const postTripName = body.tripId ? getTripBySlug(body.tripId)?.name : undefined;
     if (body.type === "expense") {
       notifications.push(
         sendDiscordNotification({
@@ -424,6 +525,8 @@ export async function POST(request: NextRequest) {
           shares: body.shares,
           createdById: body.createdById,
           imageUrls: postImageUrls,
+          tripName: postTripName,
+          currency: body.currency,
         }).catch((e) => console.error("Discord notification error:", e))
       );
     } else if (body.type === "settlement") {
@@ -438,6 +541,8 @@ export async function POST(request: NextRequest) {
           amountCents: body.amountCents,
           createdById: body.createdById,
           imageUrls: postImageUrls,
+          tripName: postTripName,
+          currency: body.currency,
         }).catch((e) => console.error("Discord notification error:", e))
       );
     }

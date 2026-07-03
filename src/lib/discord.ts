@@ -1,6 +1,12 @@
 import { getUserById } from "@/lib/users";
 
-interface ExpenseNotification {
+/** Optional trip context shared by all notification types. */
+interface TripContext {
+  tripName?: string; // shown as a [Trip Name] title prefix
+  currency?: string; // "JPY" formats as ¥ whole yen; default CAD dollars
+}
+
+interface ExpenseNotification extends TripContext {
   type: "expense";
   date: string;
   item: string;
@@ -12,7 +18,7 @@ interface ExpenseNotification {
   imageUrls?: string[];
 }
 
-interface SettlementNotification {
+interface SettlementNotification extends TripContext {
   type: "settlement";
   date: string;
   item: string;
@@ -24,7 +30,7 @@ interface SettlementNotification {
   imageUrls?: string[];
 }
 
-interface DeletionNotification {
+interface DeletionNotification extends TripContext {
   type: "deletion";
   item: string;
   transactionType: "expense" | "settlement";
@@ -32,7 +38,16 @@ interface DeletionNotification {
   date: string;
 }
 
-interface EditedExpenseNotification {
+interface TransferNotification extends TripContext {
+  type: "transfer";
+  tripName: string;
+  /** Final main-ledger adjustment per user, in CAD cents. */
+  lines: { userId: number; amountCents: number }[];
+  /** Rate used to convert leftover non-CAD balances, if any (e.g. "1 CAD = 110 JPY"). */
+  rateNote?: string;
+}
+
+interface EditedExpenseNotification extends TripContext {
   type: "edited_expense";
   date: string;
   item: string;
@@ -44,7 +59,7 @@ interface EditedExpenseNotification {
   imageUrls?: string[];
 }
 
-interface EditedSettlementNotification {
+interface EditedSettlementNotification extends TripContext {
   type: "edited_settlement";
   date: string;
   item: string;
@@ -56,7 +71,13 @@ interface EditedSettlementNotification {
   imageUrls?: string[];
 }
 
-type TransactionNotification = ExpenseNotification | SettlementNotification | DeletionNotification | EditedExpenseNotification | EditedSettlementNotification;
+type TransactionNotification =
+  | ExpenseNotification
+  | SettlementNotification
+  | DeletionNotification
+  | EditedExpenseNotification
+  | EditedSettlementNotification
+  | TransferNotification;
 
 interface DiscordEmbed {
   title: string;
@@ -67,16 +88,23 @@ interface DiscordEmbed {
   image?: { url: string };
 }
 
-function cents(n: number): string {
+/** Format minor units for the given currency (JPY = whole yen, default = dollars). */
+function money(n: number, currency?: string): string {
   const abs = Math.abs(n);
+  if (currency === "JPY") return `¥${abs.toLocaleString("en-US")}`;
   return `$${(abs / 100).toFixed(2)}`;
+}
+
+/** Prefix embed titles with the trip name when present. */
+function withTrip(title: string, tripName?: string): string {
+  return tripName ? `[${tripName}] ${title}` : title;
 }
 
 function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
   // Payers line
   const payerLines = data.payers.map((p) => {
     const name = getUserById(p.userId)?.name ?? "?";
-    return `${name}: ${cents(p.amountCents)}`;
+    return `${name}: ${money(p.amountCents, data.currency)}`;
   });
   const payerStr =
     payerLines.length === 1
@@ -87,13 +115,13 @@ function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
   const shareLines = data.shares
     .map((s) => {
       const name = getUserById(s.userId)?.name ?? "?";
-      return `${name}: ${cents(s.amountCents)}`;
+      return `${name}: ${money(s.amountCents, data.currency)}`;
     })
     .join("\n");
 
   const fields = [
     { name: "Paid by", value: payerStr, inline: true },
-    { name: "Total", value: cents(data.totalAmountCents), inline: true },
+    { name: "Total", value: money(data.totalAmountCents, data.currency), inline: true },
     { name: "Date", value: data.date, inline: true },
     { name: "Split", value: shareLines, inline: false },
   ];
@@ -103,7 +131,7 @@ function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
   }
 
   return {
-    title: `New expense: ${data.item}`,
+    title: withTrip(`New expense: ${data.item}`, data.tripName),
     color: 0x3b82f6, // blue
     fields,
     timestamp: new Date().toISOString(),
@@ -117,7 +145,7 @@ function buildSettlementEmbed(data: SettlementNotification): DiscordEmbed {
   const fields = [
     { name: "From", value: from, inline: true },
     { name: "To", value: to, inline: true },
-    { name: "Amount", value: cents(data.amountCents), inline: true },
+    { name: "Amount", value: money(data.amountCents, data.currency), inline: true },
     { name: "Date", value: data.date, inline: false },
   ];
 
@@ -126,7 +154,7 @@ function buildSettlementEmbed(data: SettlementNotification): DiscordEmbed {
   }
 
   return {
-    title: `Settlement: ${data.item}`,
+    title: withTrip(`Settlement: ${data.item}`, data.tripName),
     color: 0x10b981, // green
     fields,
     timestamp: new Date().toISOString(),
@@ -140,12 +168,39 @@ function buildDeletionEmbed(data: DeletionNotification): DiscordEmbed {
     { name: "Date", value: data.date, inline: true },
   ];
   if (data.totalAmountCents != null) {
-    fields.push({ name: "Amount", value: cents(data.totalAmountCents), inline: true });
+    fields.push({ name: "Amount", value: money(data.totalAmountCents, data.currency), inline: true });
   }
 
   return {
-    title: `Deleted: ${data.item}`,
+    title: withTrip(`Deleted: ${data.item}`, data.tripName),
     color: 0xef4444, // red
+    fields,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function buildTransferEmbed(data: TransferNotification): DiscordEmbed {
+  const lineStr =
+    data.lines.length > 0
+      ? data.lines
+          .map((l) => {
+            const name = getUserById(l.userId)?.name ?? "?";
+            const sign = l.amountCents > 0 ? "+" : "";
+            return `${name}: ${sign}${money(l.amountCents)}`;
+          })
+          .join("\n")
+      : "All balances were already settled — nothing to transfer.";
+
+  const fields = [
+    { name: "Applied to main balances", value: lineStr, inline: false },
+  ];
+  if (data.rateNote) {
+    fields.push({ name: "Conversion", value: data.rateNote, inline: false });
+  }
+
+  return {
+    title: `Trip closed: ${data.tripName} — balances transferred to main ledger`,
+    color: 0x8b5cf6, // violet
     fields,
     timestamp: new Date().toISOString(),
   };
@@ -153,14 +208,14 @@ function buildDeletionEmbed(data: DeletionNotification): DiscordEmbed {
 
 function buildEditedExpenseEmbed(data: EditedExpenseNotification) {
   const embed = buildExpenseEmbed({ ...data, type: "expense" });
-  embed.title = `Edited: ${data.item}`;
+  embed.title = withTrip(`Edited: ${data.item}`, data.tripName);
   embed.color = 0xf59e0b; // amber
   return embed;
 }
 
 function buildEditedSettlementEmbed(data: EditedSettlementNotification) {
   const embed = buildSettlementEmbed({ ...data, type: "settlement" });
-  embed.title = `Edited: ${data.item}`;
+  embed.title = withTrip(`Edited: ${data.item}`, data.tripName);
   embed.color = 0xf59e0b; // amber
   return embed;
 }
@@ -181,13 +236,15 @@ export async function sendDiscordNotification(
   const embed =
     data.type === "deletion"
       ? buildDeletionEmbed(data)
-      : data.type === "edited_expense"
-        ? buildEditedExpenseEmbed(data)
-        : data.type === "edited_settlement"
-          ? buildEditedSettlementEmbed(data)
-          : data.type === "expense"
-            ? buildExpenseEmbed(data)
-            : buildSettlementEmbed(data);
+      : data.type === "transfer"
+        ? buildTransferEmbed(data)
+        : data.type === "edited_expense"
+          ? buildEditedExpenseEmbed(data)
+          : data.type === "edited_settlement"
+            ? buildEditedSettlementEmbed(data)
+            : data.type === "expense"
+              ? buildExpenseEmbed(data)
+              : buildSettlementEmbed(data);
 
   const embeds: DiscordEmbed[] = [embed];
 

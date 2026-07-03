@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import { USERS } from "@/lib/users";
 import { todayString, dollarsToCents, centsToDisplay } from "@/lib/utils";
 import { computeProRataShares, formatReceiptNotes } from "@/lib/receipt";
+import { toMinorUnits, formatMoney, type TripConfig, type TripCurrency } from "@/lib/trips";
 import type { CreateTransactionRequest } from "@/lib/types";
+
+const CAD_DEFAULT: TripCurrency = { code: "CAD", symbol: "$", decimals: 2 };
 
 type Phase = "upload" | "scanning" | "edit" | "submitting" | "done";
 
@@ -75,11 +78,31 @@ function compressImage(file: File, maxBytes = 4 * 1024 * 1024): Promise<File> {
   });
 }
 
-export default function ReceiptForm() {
+export default function ReceiptForm({
+  trip,
+  onCreated,
+}: {
+  /** When set, the scanner posts trip entries (currency/category/method, trip members). */
+  trip?: TripConfig;
+  onCreated?: () => void;
+} = {}) {
   const router = useRouter();
+  const members = trip ? USERS.filter((u) => trip.memberIds.includes(u.id)) : [...USERS];
   const [phase, setPhase] = useState<Phase>("upload");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Currency (trips can toggle; main ledger is CAD)
+  const [currencyCode, setCurrencyCode] = useState(trip?.currencies[0]?.code ?? "CAD");
+  const currencyDef: TripCurrency =
+    trip?.currencies.find((c) => c.code === currencyCode) ?? CAD_DEFAULT;
+  const toMinor = (v: string | number) => toMinorUnits(v, currencyDef.decimals);
+  const fmt = (n: number) => (trip ? formatMoney(n, currencyDef) : centsToDisplay(n));
+
+  // Trip-only fields
+  const [category, setCategory] = useState("");
+  const [method, setMethod] = useState("");
+  const [methodOther, setMethodOther] = useState("");
 
   // Receipt file
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -99,30 +122,33 @@ export default function ReceiptForm() {
   const primaryPayerId = payers[0]?.userId ?? 0;
 
   const syncTotalFromPayers = (updatedPayers: PayerEntry[]) => {
-    const sum = updatedPayers.reduce((s, p) => s + dollarsToCents(p.amount), 0);
-    setTotalAmount(sum > 0 ? (sum / 100).toFixed(2) : "");
+    const sum = updatedPayers.reduce((s, p) => s + toMinor(p.amount), 0);
+    setTotalAmount(
+      sum > 0 ? (sum / Math.pow(10, currencyDef.decimals)).toFixed(currencyDef.decimals) : ""
+    );
   };
 
   // Items
   const [items, setItems] = useState<ReceiptItem[]>([]);
 
   // Computed shares
-  const totalCents = dollarsToCents(totalAmount);
+  const totalCents = toMinor(totalAmount);
   const itemsSubtotalCents = items.reduce(
-    (s, it) => s + dollarsToCents(it.totalPrice),
+    (s, it) => s + toMinor(it.totalPrice),
     0
   );
 
   const computedShares = useMemo(() => {
     return computeProRataShares({
       items: items.map((it) => ({
-        totalPriceCents: dollarsToCents(it.totalPrice),
+        totalPriceCents: toMinorUnits(it.totalPrice, currencyDef.decimals),
         assignedUserIds: it.assignedUserIds,
       })),
       totalAmountCents: totalCents,
       primaryPayerUserId: primaryPayerId,
     });
-  }, [items, totalCents, primaryPayerId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, totalCents, primaryPayerId, currencyDef.decimals]);
 
   const sharesSumCents = computedShares.reduce((s, sh) => s + sh.amountCents, 0);
   const sharesMatch = totalCents > 0 && sharesSumCents === totalCents;
@@ -135,15 +161,16 @@ export default function ReceiptForm() {
   const noDuplicatePayers =
     payerUserIds.size === payers.length || payers.some((p) => p.userId === 0);
   const payersSumCents = isMultiPayer
-    ? payers.reduce((sum, p) => sum + dollarsToCents(p.amount), 0)
+    ? payers.reduce((sum, p) => sum + toMinor(p.amount), 0)
     : totalCents;
   const payersMatch = isMultiPayer
     ? totalCents > 0 && payersSumCents === totalCents
     : true;
 
-  const hasOtherThanPayer = computedShares.some(
-    (s) => !payerUserIds.has(s.userId)
-  );
+  // Trips allow self-entries (payer is the only person assigned)
+  const hasOtherThanPayer =
+    !!trip ||
+    computedShares.some((s) => !payerUserIds.has(s.userId));
 
   const canSubmit =
     phase === "edit" &&
@@ -155,7 +182,8 @@ export default function ReceiptForm() {
     totalCents > 0 &&
     assignedItemCount > 0 &&
     hasOtherThanPayer &&
-    sharesMatch;
+    sharesMatch &&
+    (!trip || category !== "");
 
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
@@ -287,10 +315,12 @@ export default function ReceiptForm() {
         const updated = { ...it, ...patch };
         // Auto-compute totalPrice from qty * unit if unitPrice changed or qty changed
         if (("unitPrice" in patch || "quantity" in patch) && !("totalPrice" in patch)) {
-          const unit = dollarsToCents(updated.unitPrice);
+          const unit = toMinor(updated.unitPrice);
           const total = unit * updated.quantity;
           if (unit > 0) {
-            updated.totalPrice = (total / 100).toFixed(2);
+            updated.totalPrice = (total / Math.pow(10, currencyDef.decimals)).toFixed(
+              currencyDef.decimals
+            );
           }
         }
         return updated;
@@ -322,7 +352,7 @@ export default function ReceiptForm() {
     setItems((prev) =>
       prev.map((it, i) =>
         i === itemIdx
-          ? { ...it, assignedUserIds: USERS.map((u) => u.id) }
+          ? { ...it, assignedUserIds: members.map((u) => u.id) }
           : it
       )
     );
@@ -375,14 +405,15 @@ export default function ReceiptForm() {
         computedShares,
         itemsSubtotalCents,
         totalCents,
-        notes.trim() || undefined
+        notes.trim() || undefined,
+        trip ? currencyDef : undefined
       );
 
       // Build payers payload
       const payersPayload = isMultiPayer
         ? payers.map((p) => ({
             userId: p.userId,
-            amountCents: dollarsToCents(p.amount),
+            amountCents: toMinor(p.amount),
           }))
         : [{ userId: primaryPayerId, amountCents: totalCents }];
 
@@ -399,6 +430,15 @@ export default function ReceiptForm() {
           amountCents: s.amountCents,
         })),
         attachmentUrls: attachmentUrls.length > 0 ? attachmentUrls : undefined,
+        ...(trip
+          ? {
+              tripId: trip.slug,
+              currency: currencyDef.code,
+              category,
+              paymentMethod:
+                (method === "Others" ? methodOther.trim() : method) || undefined,
+            }
+          : {}),
       };
 
       const res = await fetch("/api/transactions", {
@@ -415,6 +455,7 @@ export default function ReceiptForm() {
       setSuccess("Expense added!" + uploadWarning);
       setPhase("done");
       router.refresh();
+      onCreated?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setPhase("edit");
@@ -431,6 +472,9 @@ export default function ReceiptForm() {
     setTotalAmount("");
     setPayers([{ id: `payer-${payerIdCounter++}`, userId: 0, amount: "" }]);
     setItems([]);
+    setCategory("");
+    setMethod("");
+    setMethodOther("");
     setError("");
     setSuccess("");
   };
@@ -580,6 +624,74 @@ export default function ReceiptForm() {
             />
           </div>
 
+          {/* Trip fields: currency, category, payment method */}
+          {trip && (
+            <>
+              <div className="flex bg-background rounded-lg p-1">
+                {trip.currencies.map((c) => (
+                  <button
+                    key={c.code}
+                    onClick={() => setCurrencyCode(c.code)}
+                    className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      currencyCode === c.code
+                        ? "bg-accent/20 text-accent"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {c.symbol} {c.code}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-muted mb-1">Category</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${category === "" ? "text-muted" : ""}`}
+                  >
+                    <option value="" disabled>
+                      Select...
+                    </option>
+                    {trip.categories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">
+                    Payment method (optional)
+                  </label>
+                  <select
+                    value={method}
+                    onChange={(e) => setMethod(e.target.value)}
+                    className={`w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent ${method === "" ? "text-muted" : ""}`}
+                  >
+                    <option value="" disabled>
+                      Select...
+                    </option>
+                    {trip.paymentMethods.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  {method === "Others" && (
+                    <input
+                      type="text"
+                      value={methodOther}
+                      onChange={(e) => setMethodOther(e.target.value)}
+                      placeholder="Fill in method..."
+                      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent mt-1.5"
+                    />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Paid by + Total */}
           {!isMultiPayer && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -599,7 +711,7 @@ export default function ReceiptForm() {
                   <option value={0} disabled>
                     Select...
                   </option>
-                  {USERS.map((u) => (
+                  {members.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name}
                     </option>
@@ -627,7 +739,7 @@ export default function ReceiptForm() {
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">
-                    $
+                    {currencyDef.symbol}
                   </span>
                   <input
                     type="text"
@@ -650,7 +762,7 @@ export default function ReceiptForm() {
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">
-                    $
+                    {currencyDef.symbol}
                   </span>
                   <input
                     type="text"
@@ -691,7 +803,7 @@ export default function ReceiptForm() {
                           <option value={0} disabled>
                             Select...
                           </option>
-                          {USERS.map((u) => (
+                          {members.map((u) => (
                             <option
                               key={u.id}
                               value={u.id}
@@ -703,7 +815,7 @@ export default function ReceiptForm() {
                         </select>
                         <div className="relative flex-1">
                           <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted text-xs">
-                            $
+                            {currencyDef.symbol}
                           </span>
                           <input
                             type="text"
@@ -759,8 +871,8 @@ export default function ReceiptForm() {
                     <span
                       className={`text-xs font-mono ${payersMatch ? "text-positive" : "text-negative"}`}
                     >
-                      {centsToDisplay(payersSumCents)} /{" "}
-                      {centsToDisplay(totalCents)}{" "}
+                      {fmt(payersSumCents)} /{" "}
+                      {fmt(totalCents)}{" "}
                       {payersMatch ? "\u2713" : "\u2717"}
                     </span>
                   )}
@@ -779,6 +891,8 @@ export default function ReceiptForm() {
                 <ReceiptItemRow
                   key={idx}
                   item={it}
+                  members={members}
+                  symbol={currencyDef.symbol}
                   onUpdate={(patch) => updateItem(idx, patch)}
                   onRemove={() => removeItem(idx)}
                   onToggleUser={(uid) => toggleUserOnItem(idx, uid)}
@@ -795,7 +909,7 @@ export default function ReceiptForm() {
             </button>
             {items.length > 0 && (
               <div className="mt-2 text-xs text-muted text-right">
-                Subtotal: {centsToDisplay(itemsSubtotalCents)}
+                Subtotal: {fmt(itemsSubtotalCents)}
                 {itemsSubtotalCents > 0 &&
                   totalCents > 0 &&
                   totalCents !== itemsSubtotalCents && (
@@ -837,7 +951,7 @@ export default function ReceiptForm() {
                         <span>{user?.name}</span>
                       </div>
                       <span className="font-mono">
-                        {centsToDisplay(s.amountCents)}
+                        {fmt(s.amountCents)}
                       </span>
                     </div>
                   );
@@ -847,8 +961,8 @@ export default function ReceiptForm() {
                   <span
                     className={`font-mono ${sharesMatch ? "text-positive" : "text-negative"}`}
                   >
-                    {centsToDisplay(sharesSumCents)} /{" "}
-                    {centsToDisplay(totalCents)}{" "}
+                    {fmt(sharesSumCents)} /{" "}
+                    {fmt(totalCents)}{" "}
                     {sharesMatch ? "\u2713" : "\u2717"}
                   </span>
                 </div>
@@ -906,6 +1020,8 @@ function ReceiptItemRow({
   onToggleUser,
   onSetAll,
   onClearAll,
+  members = [...USERS],
+  symbol = "$",
 }: {
   item: ReceiptItem;
   onUpdate: (patch: Partial<ReceiptItem>) => void;
@@ -913,6 +1029,8 @@ function ReceiptItemRow({
   onToggleUser: (userId: number) => void;
   onSetAll: () => void;
   onClearAll: () => void;
+  members?: { id: number; name: string; color: string }[];
+  symbol?: string;
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -931,12 +1049,12 @@ function ReceiptItemRow({
   }, [dropdownOpen]);
 
   const assignedNames = item.assignedUserIds
-    .map((id) => USERS.find((u) => u.id === id)?.name)
+    .map((id) => members.find((u) => u.id === id)?.name)
     .filter(Boolean);
   const label =
     assignedNames.length === 0
       ? "Assign..."
-      : assignedNames.length === USERS.length
+      : assignedNames.length === members.length
         ? "All"
         : assignedNames.join(", ");
 
@@ -973,7 +1091,7 @@ function ReceiptItemRow({
         <span className="text-muted">&times;</span>
         <div className="relative flex-1">
           <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-muted text-xs">
-            $
+            {symbol}
           </span>
           <input
             type="text"
@@ -987,7 +1105,7 @@ function ReceiptItemRow({
         <span className="text-muted">=</span>
         <div className="relative flex-1">
           <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-muted text-xs">
-            $
+            {symbol}
           </span>
           <input
             type="text"
@@ -1028,7 +1146,7 @@ function ReceiptItemRow({
                 None
               </button>
             </div>
-            {USERS.map((u) => {
+            {members.map((u) => {
               const checked = item.assignedUserIds.includes(u.id);
               return (
                 <button
