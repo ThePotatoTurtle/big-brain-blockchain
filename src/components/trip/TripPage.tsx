@@ -532,8 +532,7 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
                     {fxNeedingRates.map((fx) => fx.currency).join("/")}
                   </span>{" "}
                   balances will be set to 0 and moved into this trip&apos;s{" "}
-                  <span className="text-foreground font-medium">CAD</span> balance. Nothing is sent
-                  to the main ledger — you can settle or transfer the CAD balance later.
+                  <span className="text-foreground font-medium">CAD</span> balance.
                 </p>
                 {fxNeedingRates.map((fx) => (
                   <div key={fx.currency}>
