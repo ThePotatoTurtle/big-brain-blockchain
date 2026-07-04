@@ -50,6 +50,9 @@ model Transaction {
   // Links the paired transactions of a currency conversion (reversal + CAD add)
   // so deleting one deletes the whole batch (prevents double-counting).
   conversionBatchId String?
+  // When set, this main-ledger entry is a trip-close transfer; holds the rich
+  // summary (balances moved, category/per-person/currency spending) for display.
+  transferJson      Json?
 
   @@index([tripId])
   @@index([conversionBatchId])

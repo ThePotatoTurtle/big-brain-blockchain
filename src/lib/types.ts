@@ -38,6 +38,25 @@ export interface TransactionWithDetails {
   shares?: { userId: number; amountCents: number }[] | null; // gross shares (stats)
   payers?: { userId: number; amountCents: number }[] | null; // original payers
   conversionBatchId?: string | null; // set on paired currency-conversion entries
+  transfer?: TripTransferSummary | null; // set on trip-close transfer entries
+}
+
+/** Rich summary attached to a main-ledger trip-close transfer entry. */
+export interface TripTransferSummary {
+  tripSlug: string;
+  tripName: string;
+  startDate: string;
+  endDate: string;
+  memberIds: number[];
+  transferredAt: string; // ISO timestamp
+  // Net main-ledger balance change per user, CAD cents (+owed / −owes)
+  transferred: { userId: number; amountCents: number }[];
+  // Total gross spending per currency (minor units), self-entries included
+  currencyTotals: Record<string, number>;
+  // category totals per currency: currency -> category -> minor units
+  categoryTotals: Record<string, Record<string, number>>;
+  // per-person totals per currency: currency -> userId -> minor units
+  perPerson: Record<string, Record<number, number>>;
 }
 
 export interface BalanceHistoryPoint {

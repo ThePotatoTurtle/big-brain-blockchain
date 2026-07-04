@@ -136,6 +136,7 @@ export async function GET(request: NextRequest) {
         shares: (t.sharesJson as { userId: number; amountCents: number }[] | null) ?? null,
         payers: (t.payersJson as { userId: number; amountCents: number }[] | null) ?? null,
         conversionBatchId: t.conversionBatchId,
+        transfer: (t.transferJson as TransactionWithDetails["transfer"]) ?? null,
       }));
     }
 

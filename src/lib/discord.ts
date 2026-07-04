@@ -41,10 +41,26 @@ interface DeletionNotification extends TripContext {
 interface TransferNotification extends TripContext {
   type: "transfer";
   tripName: string;
-  /** Final main-ledger adjustment per user, in CAD cents. */
+  /** Net main-ledger adjustment per user, in CAD cents. */
   lines: { userId: number; amountCents: number }[];
-  /** Rate used to convert leftover non-CAD balances, if any (e.g. "1 CAD = 110 JPY"). */
-  rateNote?: string;
+  dateRange: string;
+  /** Total gross spend per currency (minor units). */
+  currencyTotals: Record<string, number>;
+  /** currency -> category -> minor units. */
+  categoryTotals: Record<string, Record<string, number>>;
+  /** currency -> userId -> minor units. */
+  perPerson: Record<string, Record<number, number>>;
+}
+
+interface ConversionNotification extends TripContext {
+  type: "conversion";
+  tripName: string;
+  /** Foreign currency codes that were zeroed out (e.g. ["JPY"]). */
+  foreignCodes: string[];
+  /** Resulting CAD balance change per user, in CAD cents. */
+  cadLines: { userId: number; amountCents: number }[];
+  /** Rate(s) used, e.g. "1 CAD = 113.55 JPY". */
+  rateNote: string;
 }
 
 interface EditedExpenseNotification extends TripContext {
@@ -77,7 +93,8 @@ type TransactionNotification =
   | DeletionNotification
   | EditedExpenseNotification
   | EditedSettlementNotification
-  | TransferNotification;
+  | TransferNotification
+  | ConversionNotification;
 
 interface DiscordEmbed {
   title: string;
@@ -180,28 +197,79 @@ function buildDeletionEmbed(data: DeletionNotification): DiscordEmbed {
 }
 
 function buildTransferEmbed(data: TransferNotification): DiscordEmbed {
-  const lineStr =
+  const nameOf = (id: number) => getUserById(id)?.name ?? "?";
+
+  // Who ends up owing / being owed on the main ledger
+  const owed = data.lines.filter((l) => l.amountCents > 0);
+  const owes = data.lines.filter((l) => l.amountCents < 0);
+  const balanceStr =
     data.lines.length > 0
-      ? data.lines
+      ? [
+          owed.length
+            ? "Owed:\n" + owed.map((l) => `• ${nameOf(l.userId)}: +${money(l.amountCents)}`).join("\n")
+            : "",
+          owes.length
+            ? "Owes:\n" + owes.map((l) => `• ${nameOf(l.userId)}: -${money(l.amountCents)}`).join("\n")
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "All settled within the trip — nothing moved.";
+
+  const fields: { name: string; value: string; inline: boolean }[] = [
+    { name: "Trip window", value: data.dateRange, inline: false },
+    { name: "Balances moved to main ledger", value: truncate(balanceStr, 1024), inline: false },
+  ];
+
+  // Per-currency spending breakdown
+  for (const cur of Object.keys(data.currencyTotals)) {
+    fields.push({
+      name: `Total spend — ${cur}`,
+      value: money(data.currencyTotals[cur], cur),
+      inline: false,
+    });
+    const cats = data.categoryTotals[cur] ?? {};
+    const catStr = Object.entries(cats)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, v]) => `• ${cat}: ${money(v, cur)}`)
+      .join("\n");
+    if (catStr) fields.push({ name: `By category — ${cur}`, value: truncate(catStr, 1024), inline: true });
+
+    const people = data.perPerson[cur] ?? {};
+    const personStr = Object.entries(people)
+      .sort((a, b) => b[1] - a[1])
+      .map(([uid, v]) => `• ${nameOf(Number(uid))}: ${money(v, cur)}`)
+      .join("\n");
+    if (personStr) fields.push({ name: `By person — ${cur}`, value: truncate(personStr, 1024), inline: true });
+  }
+
+  return {
+    title: `🔒 Trip closed: ${data.tripName}`,
+    color: 0x8b5cf6, // violet
+    fields,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function buildConversionEmbed(data: ConversionNotification): DiscordEmbed {
+  const lineStr =
+    data.cadLines.length > 0
+      ? data.cadLines
           .map((l) => {
             const name = getUserById(l.userId)?.name ?? "?";
             const sign = l.amountCents > 0 ? "+" : "";
             return `${name}: ${sign}${money(l.amountCents)}`;
           })
           .join("\n")
-      : "All balances were already settled — nothing to transfer.";
-
-  const fields = [
-    { name: "Applied to main balances", value: lineStr, inline: false },
-  ];
-  if (data.rateNote) {
-    fields.push({ name: "Conversion", value: data.rateNote, inline: false });
-  }
+      : "No CAD balance change.";
 
   return {
-    title: `Trip closed: ${data.tripName} — balances transferred to main ledger`,
-    color: 0x8b5cf6, // violet
-    fields,
+    title: `[${data.tripName}] ${data.foreignCodes.join("/")} balances converted to CAD`,
+    color: 0x14b8a6, // teal
+    fields: [
+      { name: "Rate", value: data.rateNote, inline: false },
+      { name: "CAD balance change", value: lineStr, inline: false },
+    ],
     timestamp: new Date().toISOString(),
   };
 }
@@ -236,9 +304,11 @@ export async function sendDiscordNotification(
   const embed =
     data.type === "deletion"
       ? buildDeletionEmbed(data)
-      : data.type === "transfer"
-        ? buildTransferEmbed(data)
-        : data.type === "edited_expense"
+      : data.type === "conversion"
+        ? buildConversionEmbed(data)
+        : data.type === "transfer"
+          ? buildTransferEmbed(data)
+          : data.type === "edited_expense"
           ? buildEditedExpenseEmbed(data)
           : data.type === "edited_settlement"
             ? buildEditedSettlementEmbed(data)

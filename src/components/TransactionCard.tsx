@@ -4,6 +4,14 @@ import type { TransactionWithDetails } from "@/lib/types";
 import { centsToDisplay, formatDate } from "@/lib/utils";
 import { getUserById } from "@/lib/users";
 
+/** Currency-aware formatting (JPY = whole yen; default CAD cents). */
+function fmtCur(n: number, currency?: string): string {
+  if (currency === "JPY") {
+    return `${n < 0 ? "-" : ""}¥${Math.abs(n).toLocaleString("en-US")}`;
+  }
+  return centsToDisplay(n);
+}
+
 export default function TransactionCard({
   transaction: t,
   onDelete,
@@ -13,18 +21,20 @@ export default function TransactionCard({
   onDelete?: (id: number) => void;
   onEdit?: (t: TransactionWithDetails) => void;
 }) {
+  // Trip-close transfer entries get a fully distinct card
+  if (t.transfer) return <TripTransferCard transfer={t.transfer} date={t.date} />;
+
   const isSettlement = t.type === "settlement";
 
   // Currency-aware amount formatting (JPY = whole yen; default CAD cents)
-  const fmt = (n: number) => {
-    if (t.currency === "JPY") {
-      return `${n < 0 ? "-" : ""}¥${Math.abs(n).toLocaleString("en-US")}`;
-    }
-    return centsToDisplay(n);
-  };
+  const fmt = (n: number) => fmtCur(n, t.currency);
 
   // For expenses: find all payers (positive amount lines)
   const payerLines = t.lines.filter((l) => l.amount > 0);
+
+  // Currency conversions: the per-user lines are balance adjustments, not a
+  // real payment, so the "X paid Y" summary line makes no sense for them.
+  const isConversion = !!t.conversionBatchId;
 
   // Self entry (trip): no balance lines — payer(s) equal the shares exactly
   const isSelfEntry = !isSettlement && t.lines.length === 0 && !!t.shares?.length;
@@ -119,7 +129,7 @@ export default function TransactionCard({
       {/* Expense display */}
       {!isSettlement && !isSelfEntry && (
         <div className="space-y-1.5">
-          {payerLines.length > 0 && (
+          {!isConversion && payerLines.length > 0 && (
             <div className="text-xs text-muted mb-1">
               {payerLines.map((l, i) => (
                 <span key={l.userId}>
@@ -205,6 +215,104 @@ export default function TransactionCard({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Distinct card for a trip-close transfer, rich with the trip's final stats. */
+function TripTransferCard({
+  transfer: tr,
+  date,
+}: {
+  transfer: NonNullable<TransactionWithDetails["transfer"]>;
+  date: string;
+}) {
+  const owed = tr.transferred.filter((l) => l.amountCents > 0);
+  const owes = tr.transferred.filter((l) => l.amountCents < 0);
+  const currencies = Object.keys(tr.currencyTotals);
+
+  return (
+    <div className="bg-card rounded-xl p-4 space-y-3 relative overflow-hidden border-l-2 border-l-accent">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-semibold">Trip Transfer: {tr.tripName}</p>
+          <p className="text-xs text-muted">{formatDate(date)}</p>
+        </div>
+        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0">
+          🔒 Trip closed
+        </span>
+      </div>
+
+      <p className="text-xs text-muted">
+        {formatDate(tr.startDate)} – {formatDate(tr.endDate)}
+      </p>
+
+      {/* Balances moved to main ledger */}
+      <div>
+        <p className="text-xs font-medium text-muted mb-1.5">Moved to main ledger</p>
+        {tr.transferred.length === 0 ? (
+          <p className="text-xs text-muted italic">All settled within the trip — nothing moved.</p>
+        ) : (
+          <div className="space-y-1">
+            {[...owed, ...owes].map((l) => {
+              const u = getUserById(l.userId);
+              return (
+                <div key={l.userId} className="flex items-center gap-2 text-sm">
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: u?.color ?? "#6B7280" }} />
+                  <span>{u?.name}</span>
+                  <span
+                    className={`ml-auto font-mono text-xs font-semibold ${
+                      l.amountCents < 0 ? "text-negative" : "text-positive"
+                    }`}
+                  >
+                    {l.amountCents > 0 ? "+" : ""}
+                    {fmtCur(l.amountCents, "CAD")}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Spending breakdown per currency */}
+      {currencies.map((cur) => {
+        const cats = tr.categoryTotals[cur] ?? {};
+        const people = tr.perPerson[cur] ?? {};
+        return (
+          <div key={cur} className="bg-background rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium">Spending — {cur}</p>
+              <span className="font-mono text-xs font-semibold">
+                {fmtCur(tr.currencyTotals[cur], cur)}
+              </span>
+            </div>
+            {Object.entries(cats)
+              .sort((a, b) => b[1] - a[1])
+              .map(([cat, v]) => (
+                <div key={cat} className="flex justify-between text-xs">
+                  <span className="text-muted">{cat}</span>
+                  <span className="font-mono">{fmtCur(v, cur)}</span>
+                </div>
+              ))}
+            <div className="border-t border-border pt-1.5 space-y-1">
+              {Object.entries(people)
+                .sort((a, b) => b[1] - a[1])
+                .map(([uid, v]) => {
+                  const u = getUserById(Number(uid));
+                  return (
+                    <div key={uid} className="flex items-center gap-2 text-xs">
+                      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: u?.color ?? "#6B7280" }} />
+                      <span>{u?.name}</span>
+                      <span className="ml-auto font-mono">{fmtCur(v, cur)}</span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

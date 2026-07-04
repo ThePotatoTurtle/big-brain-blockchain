@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getTripBySlug } from "@/lib/trips";
+import { sendDiscordNotification } from "@/lib/discord";
 
 /**
  * POST /api/trips/[slug]/convert
@@ -160,6 +161,15 @@ export async function POST(
         });
       }
     });
+
+    // One webhook summarizing the whole conversion
+    await sendDiscordNotification({
+      type: "conversion",
+      tripName: trip.name,
+      foreignCodes: foreignToConvert.map(([cur]) => cur),
+      cadLines: cadLines.map((l) => ({ userId: l.userId, amountCents: l.amount })),
+      rateNote,
+    }).catch((e) => console.error("Discord conversion notification error:", e));
 
     return NextResponse.json({ success: true, cadLines });
   } catch (error) {

@@ -29,9 +29,9 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
 
   // Transfer modal
   const [transferOpen, setTransferOpen] = useState(false);
-  const [transferRates, setTransferRates] = useState<Record<string, string>>({});
   const [transferring, setTransferring] = useState(false);
   const [transferError, setTransferError] = useState("");
+  const [transferConfirmName, setTransferConfirmName] = useState("");
 
   // Convert-foreign-to-CAD modal (in-trip, does not transfer to main ledger)
   const [convertOpen, setConvertOpen] = useState(false);
@@ -115,30 +115,26 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
       (b) => b.currency !== "CAD" && b.users.some((u) => u.balance !== 0)
     ) ?? [];
 
+  const nameConfirmed =
+    transferConfirmName.trim().toLowerCase() === trip.name.toLowerCase();
+
   const doTransfer = async () => {
+    // Foreign balances must be converted first; trip name must be typed to confirm
+    if (fxNeedingRates.length > 0 || !nameConfirmed) return;
     setTransferring(true);
     setTransferError("");
     try {
-      const rates: Record<string, number> = {};
-      for (const fx of fxNeedingRates) {
-        const v = parseFloat(transferRates[fx.currency] ?? "");
-        if (!v || v <= 0) {
-          setTransferError(`Enter a valid ${fx.currency} rate`);
-          setTransferring(false);
-          return;
-        }
-        rates[fx.currency] = v;
-      }
       const res = await fetch(`/api/trips/${trip.slug}/transfer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rates }),
+        body: JSON.stringify({ confirmName: transferConfirmName.trim() }),
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Transfer failed");
       }
       setTransferOpen(false);
+      setTransferConfirmName("");
       refresh();
     } catch (err) {
       setTransferError(err instanceof Error ? err.message : "Transfer failed");
@@ -244,9 +240,13 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
             Trip Balances
           </h2>
           {!locked && (
-            <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setTransferOpen(true)}
+                onClick={() => {
+                  setTransferConfirmName("");
+                  setTransferError("");
+                  setTransferOpen(true);
+                }}
                 className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors whitespace-nowrap"
               >
                 Transfer to main ledger
@@ -596,23 +596,30 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
               balances will be applied to the main ledger, and this trip will be{" "}
               <span className="text-foreground font-medium">permanently locked</span> (read-only).
             </p>
-            {fxNeedingRates.map((fx) => (
-              <div key={fx.currency}>
+            {fxNeedingRates.length > 0 ? (
+              <div className="text-sm text-amber-400 bg-amber-400/10 rounded-lg px-3 py-2">
+                There are unconverted{" "}
+                <span className="font-medium">
+                  {fxNeedingRates.map((fx) => fx.currency).join("/")}
+                </span>{" "}
+                balances. Convert them to CAD first using the{" "}
+                <span className="font-medium">Convert {foreignCodes.join("/")} → CAD</span> button.
+              </div>
+            ) : (
+              <div>
                 <label className="block text-xs text-muted mb-1">
-                  {fx.currency} conversion rate ({fx.currency} per 1 CAD)
+                  Type the trip name (<span className="text-foreground font-medium">{trip.name}</span>) to
+                  confirm
                 </label>
                 <input
                   type="text"
-                  inputMode="decimal"
-                  value={transferRates[fx.currency] ?? ""}
-                  onChange={(e) =>
-                    setTransferRates((prev) => ({ ...prev, [fx.currency]: e.target.value }))
-                  }
-                  placeholder={fx.currency === "JPY" ? "e.g. 110" : "rate"}
+                  value={transferConfirmName}
+                  onChange={(e) => setTransferConfirmName(e.target.value)}
+                  placeholder={trip.name}
                   className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
                 />
               </div>
-            ))}
+            )}
             {transferError && (
               <div className="text-negative text-sm bg-negative/10 rounded-lg px-3 py-2">
                 {transferError}
@@ -628,8 +635,8 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
               </button>
               <button
                 onClick={doTransfer}
-                disabled={transferring}
-                className="px-4 py-2 text-sm rounded-lg bg-accent text-white font-medium hover:bg-accent/90 transition-colors disabled:opacity-50"
+                disabled={transferring || fxNeedingRates.length > 0 || !nameConfirmed}
+                className="px-4 py-2 text-sm rounded-lg bg-negative text-white font-medium hover:bg-negative/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {transferring ? "Transferring..." : "Transfer & lock"}
               </button>

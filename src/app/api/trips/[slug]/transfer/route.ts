@@ -2,17 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getTripBySlug } from "@/lib/trips";
 import { sendDiscordNotification } from "@/lib/discord";
+import type { TripTransferSummary } from "@/lib/types";
 
 /**
  * POST /api/trips/[slug]/transfer
  *
- * Transfers the trip's remaining balances into the MAIN ledger, then locks
- * the trip (read-only). Non-CAD balances are converted using the provided
- * rates: { rates: { JPY: 110 } } meaning 1 CAD = 110 JPY.
+ * Closes a trip: moves its remaining (CAD) balances into the MAIN ledger and
+ * locks the trip (read-only). Foreign balances must be converted to CAD FIRST
+ * (via /convert) — this route rejects if any nonzero foreign balance remains.
  *
- * Creates one main-ledger transaction whose lines mirror the trip balances
- * (zero-sum preserved; rounding drift after FX conversion is absorbed by the
- * member with the largest absolute balance).
+ * Two entries are written atomically:
+ *   - a MAIN-ledger entry whose lines are the trip's net CAD balances (this is
+ *     what actually transfers the debt), carrying a rich `transferJson` summary.
+ *   - a TRIP clearing entry (lines negate the balances) so the trip's own
+ *     balances show as cleared, while its history/stats remain intact.
+ *
+ * Requires `confirmName` to match the trip name (case-insensitive).
  */
 export async function POST(
   request: NextRequest,
@@ -34,21 +39,27 @@ export async function POST(
     }
 
     const body = (await request.json().catch(() => ({}))) as {
-      rates?: Record<string, number>;
+      confirmName?: string;
     };
-    const rates = body.rates ?? {};
 
-    // Compute per-currency balances from trip lines
+    // Second-layer confirmation: typed trip name (case-insensitive)
+    if ((body.confirmName ?? "").trim().toLowerCase() !== trip.name.toLowerCase()) {
+      return NextResponse.json(
+        { error: "Type the trip name exactly to confirm the transfer" },
+        { status: 400 }
+      );
+    }
+
+    // Load all confirmed trip transactions + lines
     const transactions = await prisma.transaction.findMany({
       where: { tripId: slug, status: "confirmed" },
-      select: { id: true, currency: true },
     });
     const lines = await prisma.transactionLine.findMany({
       where: { transactionId: { in: transactions.map((t) => t.id) } },
     });
     const currencyByTx = new Map(transactions.map((t) => [t.id, t.currency]));
 
-    // balances[currency][userId] = minor units
+    // Per-currency per-user balances
     const balances: Record<string, Record<number, number>> = {};
     for (const l of lines) {
       const cur = currencyByTx.get(l.transactionId) ?? "CAD";
@@ -56,98 +67,124 @@ export async function POST(
       balances[cur][l.userId] = (balances[cur][l.userId] ?? 0) + l.amount;
     }
 
-    // Validate rates exist for every non-CAD currency with a nonzero balance
-    const rateNotes: string[] = [];
-    for (const [cur, byUser] of Object.entries(balances)) {
-      if (cur === "CAD") continue;
-      const hasNonzero = Object.values(byUser).some((v) => v !== 0);
-      if (!hasNonzero) continue;
-      const rate = rates[cur];
-      if (!rate || rate <= 0) {
-        return NextResponse.json(
-          { error: `A positive ${cur} rate is required (units of ${cur} per 1 CAD)` },
-          { status: 400 }
-        );
-      }
-      rateNotes.push(`1 CAD = ${rate} ${cur}`);
+    // Block transfer while any foreign currency still has a nonzero balance
+    const unconverted = Object.entries(balances)
+      .filter(([cur, byUser]) => cur !== "CAD" && Object.values(byUser).some((v) => v !== 0))
+      .map(([cur]) => cur);
+    if (unconverted.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Convert ${unconverted.join("/")} balances to CAD before transferring.`,
+        },
+        { status: 400 }
+      );
     }
 
-    // Combine into CAD cents per user
+    // Net CAD balances per user (foreign already zero)
     const cadPerUser = new Map<number, number>();
-    for (const [cur, byUser] of Object.entries(balances)) {
-      for (const [uidStr, minor] of Object.entries(byUser)) {
-        const uid = Number(uidStr);
-        let cents: number;
-        if (cur === "CAD") {
-          cents = minor;
-        } else {
-          const rate = rates[cur];
-          if (!rate) continue; // zero-balance currency without rate
-          // minor units of foreign currency -> CAD cents
-          const factor = Math.pow(10, 2 - (trip.currencies.find((c) => c.code === cur)?.decimals ?? 2));
-          cents = Math.round((minor * factor * 100) / (rate * 100));
-        }
-        cadPerUser.set(uid, (cadPerUser.get(uid) ?? 0) + cents);
+    for (const [uidStr, minor] of Object.entries(balances.CAD ?? {})) {
+      if (minor !== 0) cadPerUser.set(Number(uidStr), minor);
+    }
+    const finalLines = Array.from(cadPerUser.entries()).map(([userId, amount]) => ({
+      userId,
+      amount,
+    }));
+
+    // --- Build the rich spending summary (self-entries included via sharesJson) ---
+    const currencyTotals: Record<string, number> = {};
+    const categoryTotals: Record<string, Record<string, number>> = {};
+    const perPerson: Record<string, Record<number, number>> = {};
+    for (const t of transactions) {
+      if (t.type !== "expense") continue;
+      const shares =
+        (t.sharesJson as { userId: number; amountCents: number }[] | null) ?? [];
+      if (shares.length === 0) continue; // skips conversion/clearing entries
+      const cur = t.currency;
+      const category = t.category ?? "Others";
+      categoryTotals[cur] ??= {};
+      perPerson[cur] ??= {};
+      for (const s of shares) {
+        currencyTotals[cur] = (currencyTotals[cur] ?? 0) + s.amountCents;
+        categoryTotals[cur][category] = (categoryTotals[cur][category] ?? 0) + s.amountCents;
+        perPerson[cur][s.userId] = (perPerson[cur][s.userId] ?? 0) + s.amountCents;
       }
     }
 
-    // Fix FX rounding drift so lines sum to exactly zero
-    const drift = Array.from(cadPerUser.values()).reduce((s, v) => s + v, 0);
-    if (drift !== 0 && cadPerUser.size > 0) {
-      let maxUid = -1;
-      let maxAbs = -1;
-      for (const [uid, v] of cadPerUser) {
-        if (Math.abs(v) > maxAbs) {
-          maxAbs = Math.abs(v);
-          maxUid = uid;
-        }
-      }
-      cadPerUser.set(maxUid, (cadPerUser.get(maxUid) ?? 0) - drift);
-    }
+    const transferredAt = new Date();
+    const summary: TripTransferSummary = {
+      tripSlug: slug,
+      tripName: trip.name,
+      startDate: trip.startDate,
+      endDate: trip.endDate,
+      memberIds: trip.memberIds,
+      transferredAt: transferredAt.toISOString(),
+      transferred: finalLines.map((l) => ({ userId: l.userId, amountCents: l.amount })),
+      currencyTotals,
+      categoryTotals,
+      perPerson,
+    };
 
-    const finalLines = Array.from(cadPerUser.entries())
-      .filter(([, v]) => v !== 0)
-      .map(([userId, amount]) => ({ userId, amount }));
-
-    const rateNote = rateNotes.length > 0 ? rateNotes.join(", ") : undefined;
-
-    // Create the main-ledger adjustment + lock the trip atomically
+    // Atomic: main-ledger transfer record + trip clearing entry + lock
     await prisma.$transaction(async (tx) => {
+      // Main-ledger entry — this transfers the debt. Always recorded (even if
+      // net-zero) so the closure shows on the main transactions list.
+      await tx.transaction.create({
+        data: {
+          date: transferredAt,
+          type: "expense",
+          item: `Trip Transfer: ${trip.name}`,
+          notes: null,
+          totalAmountCents: finalLines
+            .filter((l) => l.amount > 0)
+            .reduce((s, l) => s + l.amount, 0),
+          createdById: trip.memberIds[0],
+          tripId: null, // main ledger
+          currency: "CAD",
+          transferJson: summary as unknown as object,
+          lines: finalLines.length > 0 ? { create: finalLines } : undefined,
+        },
+      });
+
+      // Trip clearing entry — zeroes the trip's CAD balance (history/stats stay).
+      // Carries the same summary so it renders as the transfer card on the trip
+      // page rather than a nonsensical "X paid Y" expense.
       if (finalLines.length > 0) {
         await tx.transaction.create({
           data: {
-            date: new Date(),
+            date: transferredAt,
             type: "expense",
-            item: `${trip.name} — trip balance transfer`,
-            notes: rateNote ? `Converted at ${rateNote}` : null,
+            item: `Balances transferred to main ledger`,
+            notes: null,
             totalAmountCents: finalLines
-              .filter((l) => l.amount > 0)
-              .reduce((s, l) => s + l.amount, 0),
+              .filter((l) => l.amount < 0)
+              .reduce((s, l) => s - l.amount, 0),
             createdById: trip.memberIds[0],
-            tripId: null, // main ledger
+            tripId: slug,
             currency: "CAD",
-            lines: { create: finalLines },
+            transferJson: summary as unknown as object,
+            lines: { create: finalLines.map((l) => ({ userId: l.userId, amount: -l.amount })) },
           },
         });
       }
+
       await tx.tripMeta.upsert({
         where: { slug },
-        update: { transferredAt: new Date() },
-        create: { slug, transferredAt: new Date() },
+        update: { transferredAt },
+        create: { slug, transferredAt },
       });
     });
 
     await sendDiscordNotification({
       type: "transfer",
       tripName: trip.name,
-      lines: finalLines.map((l) => ({ userId: l.userId, amountCents: l.amount })),
-      rateNote,
+      lines: summary.transferred,
+      dateRange: `${trip.startDate} → ${trip.endDate}`,
+      currencyTotals,
+      categoryTotals,
+      perPerson,
     }).catch((e) => console.error("Discord transfer notification error:", e));
 
-    return NextResponse.json({
-      success: true,
-      lines: finalLines,
-    });
+    return NextResponse.json({ success: true, lines: finalLines });
   } catch (error) {
     console.error("Failed to transfer trip balances:", error);
     return NextResponse.json(
