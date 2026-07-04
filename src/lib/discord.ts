@@ -103,6 +103,16 @@ interface DiscordEmbed {
   timestamp: string;
   url?: string;
   image?: { url: string };
+  footer?: { text: string };
+}
+
+/**
+ * Footer showing the currency code for trip transactions, so currencies that
+ * share a symbol (e.g. CAD/USD "$", JPY/CNY "¥") are unambiguous. Discord
+ * renders this as "{code} • {timestamp}". Main-ledger entries (no trip) get none.
+ */
+function currencyFooter(data: TripContext): { text: string } | undefined {
+  return data.tripName ? { text: data.currency ?? "CAD" } : undefined;
 }
 
 /** Format minor units for the given currency (JPY = whole yen, default = dollars). */
@@ -152,6 +162,7 @@ function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
     color: 0x3b82f6, // blue
     fields,
     timestamp: new Date().toISOString(),
+    footer: currencyFooter(data),
   };
 }
 
@@ -175,6 +186,7 @@ function buildSettlementEmbed(data: SettlementNotification): DiscordEmbed {
     color: 0x10b981, // green
     fields,
     timestamp: new Date().toISOString(),
+    footer: currencyFooter(data),
   };
 }
 
@@ -193,6 +205,7 @@ function buildDeletionEmbed(data: DeletionNotification): DiscordEmbed {
     color: 0xef4444, // red
     fields,
     timestamp: new Date().toISOString(),
+    footer: currencyFooter(data),
   };
 }
 
@@ -257,7 +270,7 @@ function buildConversionEmbed(data: ConversionNotification): DiscordEmbed {
       ? data.cadLines
           .map((l) => {
             const name = getUserById(l.userId)?.name ?? "?";
-            const sign = l.amountCents > 0 ? "+" : "";
+            const sign = l.amountCents > 0 ? "+" : l.amountCents < 0 ? "-" : "";
             return `${name}: ${sign}${money(l.amountCents)}`;
           })
           .join("\n")

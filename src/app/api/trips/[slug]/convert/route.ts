@@ -111,6 +111,40 @@ export async function POST(
       .filter(([, v]) => v !== 0)
       .map(([userId, amount]) => ({ userId, amount }));
 
+    // Build each foreign reversal up front so we can validate before writing
+    const reversals = foreignToConvert
+      .map(([cur, byUser]) => ({
+        cur,
+        lines: Object.entries(byUser)
+          .filter(([, v]) => v !== 0)
+          .map(([uidStr, v]) => ({ userId: Number(uidStr), amount: -v })),
+      }))
+      .filter((r) => r.lines.length > 0);
+
+    // Consistency guard: every entry we write MUST be zero-sum. The CAD side is
+    // forced to zero by drift correction; each foreign reversal is only zero if
+    // the source balances were themselves balanced. Refuse to write otherwise —
+    // this aborts the whole batch (nothing is committed) rather than corrupting
+    // the ledger with a non-zero-sum entry.
+    const zeroSum = (lines: { amount: number }[]) =>
+      lines.reduce((s, l) => s + l.amount, 0) === 0;
+    for (const r of reversals) {
+      if (!zeroSum(r.lines)) {
+        console.error(`Conversion aborted: ${r.cur} balances are not zero-sum`, r.lines);
+        return NextResponse.json(
+          { error: `Internal error: ${r.cur} balances are not balanced; conversion aborted.` },
+          { status: 500 }
+        );
+      }
+    }
+    if (!zeroSum(cadLines)) {
+      console.error("Conversion aborted: CAD lines are not zero-sum", cadLines);
+      return NextResponse.json(
+        { error: "Internal error: converted CAD balances do not sum to zero; conversion aborted." },
+        { status: 500 }
+      );
+    }
+
     const rateNote = rateNotes.join(", ");
     // Shared id linking every transaction created by this conversion, so
     // deleting any one of them removes the whole batch atomically.
@@ -118,11 +152,7 @@ export async function POST(
 
     await prisma.$transaction(async (tx) => {
       // 1. Reverse each foreign currency's balances (zeroes them)
-      for (const [cur, byUser] of foreignToConvert) {
-        const reversalLines = Object.entries(byUser)
-          .filter(([, v]) => v !== 0)
-          .map(([uidStr, v]) => ({ userId: Number(uidStr), amount: -v }));
-        if (reversalLines.length === 0) continue;
+      for (const { cur, lines: reversalLines } of reversals) {
         await tx.transaction.create({
           data: {
             date: new Date(),

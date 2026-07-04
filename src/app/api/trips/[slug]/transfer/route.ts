@@ -90,6 +90,18 @@ export async function POST(
       amount,
     }));
 
+    // Consistency guard: the main-ledger entry (finalLines) and the trip
+    // clearing entry (its negation) must be zero-sum. finalLines is the trip's
+    // CAD balances, which are only zero if the ledger is intact — verify before
+    // writing so a corrupted state aborts instead of unbalancing the main ledger.
+    if (finalLines.reduce((s, l) => s + l.amount, 0) !== 0) {
+      console.error("Transfer aborted: trip CAD balances are not zero-sum", finalLines);
+      return NextResponse.json(
+        { error: "Internal error: trip balances do not sum to zero; transfer aborted." },
+        { status: 500 }
+      );
+    }
+
     // --- Build the rich spending summary (self-entries included via sharesJson) ---
     const currencyTotals: Record<string, number> = {};
     const categoryTotals: Record<string, Record<string, number>> = {};
