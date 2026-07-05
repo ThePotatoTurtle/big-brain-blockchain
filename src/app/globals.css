@@ -16,8 +16,9 @@
   /* --- Fixed across every scheme --- */
   --positive: #10B981;
   --negative: #EF4444;
-  --corner-expense: #10B981;   /* green — expense / "New entry" default */
-  --corner-settlement: #3B82F6; /* blue  — settlement */
+  --corner-expense: #10B981;   /* green  — expense / "New entry" default */
+  --corner-settlement: #3B82F6; /* blue   — settlement */
+  --corner-transfer: #8B5CF6;  /* violet — trip-close transfer */
 
   /* --- Default scheme: Midnight (blue) --- */
   --background: #0F172A;
@@ -129,6 +130,7 @@
   --color-accent: var(--accent);
   --color-corner-expense: var(--corner-expense);
   --color-corner-settlement: var(--corner-settlement);
+  --color-corner-transfer: var(--corner-transfer);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

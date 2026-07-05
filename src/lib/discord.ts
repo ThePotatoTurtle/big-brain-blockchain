@@ -115,6 +115,28 @@ function currencyFooter(data: TripContext): { text: string } | undefined {
   return data.tripName ? { text: data.currency ?? "CAD" } : undefined;
 }
 
+/**
+ * A self-expense charges the payer(s) exactly what they paid — the net balance
+ * change for everyone is zero (recorded for stats, no one owes anyone).
+ */
+function isSelfExpense(
+  payers: { userId: number; amountCents: number }[],
+  shares: { userId: number; amountCents: number }[]
+): boolean {
+  const net = new Map<number, number>();
+  for (const p of payers) net.set(p.userId, (net.get(p.userId) ?? 0) + p.amountCents);
+  for (const s of shares) net.set(s.userId, (net.get(s.userId) ?? 0) - s.amountCents);
+  return shares.length > 0 && Array.from(net.values()).every((v) => v === 0);
+}
+
+/** Footer for expenses: currency code (trip only) + a "Self expense" tag when applicable. */
+function expenseFooter(data: ExpenseNotification | EditedExpenseNotification): { text: string } | undefined {
+  const parts: string[] = [];
+  if (data.tripName) parts.push(data.currency ?? "CAD");
+  if (isSelfExpense(data.payers, data.shares)) parts.push("Self expense");
+  return parts.length > 0 ? { text: parts.join(" · ") } : undefined;
+}
+
 /** Format minor units for the given currency (JPY = whole yen, default = dollars). */
 function money(n: number, currency?: string): string {
   const abs = Math.abs(n);
@@ -162,7 +184,7 @@ function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
     color: 0x3b82f6, // blue
     fields,
     timestamp: new Date().toISOString(),
-    footer: currencyFooter(data),
+    footer: expenseFooter(data),
   };
 }
 

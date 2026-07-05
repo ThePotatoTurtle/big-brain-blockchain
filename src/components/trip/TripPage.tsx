@@ -235,26 +235,26 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
 
       {/* ---- Balances (isolated from main) ---- */}
       <div className="bg-card rounded-xl p-4 md:p-6 space-y-4">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
             Trip Balances
           </h2>
           {!locked && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
               <button
                 onClick={() => {
                   setTransferConfirmName("");
                   setTransferError("");
                   setTransferOpen(true);
                 }}
-                className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors whitespace-nowrap"
+                className="w-full sm:w-auto px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors whitespace-nowrap"
               >
                 Transfer to main ledger
               </button>
               {foreignCodes.length > 0 && (
                 <button
                   onClick={() => setConvertOpen(true)}
-                  className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors whitespace-nowrap"
+                  className="w-full sm:w-auto px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors whitespace-nowrap"
                 >
                   Convert {foreignCodes.join("/")} → CAD
                 </button>

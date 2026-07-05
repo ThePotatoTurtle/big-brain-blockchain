@@ -232,7 +232,9 @@ function TripTransferCard({
   const currencies = Object.keys(tr.currencyTotals);
 
   return (
-    <div className="bg-card rounded-xl p-4 space-y-3 relative overflow-hidden border-l-2 border-l-accent">
+    <div className="bg-card rounded-xl p-4 space-y-3 relative overflow-hidden">
+      {/* Corner triangle */}
+      <div className="absolute top-0 left-0 w-0 h-0 border-t-[24px] border-r-[24px] border-r-transparent border-t-corner-transfer" />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
