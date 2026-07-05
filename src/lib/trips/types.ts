@@ -10,6 +10,11 @@ export interface TripCurrency {
   code: string; // ISO code, e.g. "CAD", "JPY"
   symbol: string; // "$", "¥"
   decimals: number; // 2 for CAD (cents), 0 for JPY (yen)
+  /**
+   * Y-axis tick step for balance charts, in MINOR units. e.g. 10000 = $100 for
+   * CAD (cents), or ¥10,000 for JPY (yen). Falls back to 100 major units if unset.
+   */
+  axisStep?: number;
 }
 
 /** Freeform label/value pairs rendered under the trip header. */

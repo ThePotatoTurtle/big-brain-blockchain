@@ -16,8 +16,8 @@ export const japan2026: TripConfig = {
   // e.g. { label: "Hotel", value: "Shinjuku Granbell" }
   details: [],
   currencies: [
-    { code: "CAD", symbol: "$", decimals: 2 },
-    { code: "JPY", symbol: "¥", decimals: 0 },
+    { code: "CAD", symbol: "$", decimals: 2, axisStep: 10000 }, // $100 ticks
+    { code: "JPY", symbol: "¥", decimals: 0, axisStep: 10000 }, // ¥10,000 ticks
   ],
   categories: [
     "Accommodation",

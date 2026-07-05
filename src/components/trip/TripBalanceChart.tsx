@@ -106,11 +106,37 @@ export default function TripBalanceChart({
       }
     }
   }
-  const pad = Math.max((yMax - yMin) * 0.1, 1);
+  // Round the Y domain to the currency's tick step (like the main-ledger chart).
+  const step =
+    currency.axisStep && currency.axisStep > 0
+      ? currency.axisStep
+      : Math.pow(10, currency.decimals) * 100;
+  let yLo = Math.floor(yMin / step) * step;
+  let yHi = Math.ceil(yMax / step) * step;
+  if (yLo === yHi) {
+    yLo -= step;
+    yHi += step;
+  }
+  const yDomain: [number, number] = [yLo, yHi];
+  const yTicks = (() => {
+    const count = Math.round((yHi - yLo) / step) + 1;
+    const t = Array.from({ length: count }, (_, i) => yLo + i * step);
+    if (!t.includes(0)) t.push(0);
+    return t.sort((a, b) => a - b);
+  })();
+
+  const allShown = hidden.size === 0;
 
   return (
     <div>
       <div className="flex flex-wrap gap-2 mb-3">
+        <button
+          onClick={() => setHidden(new Set())}
+          disabled={allShown}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-30 disabled:cursor-default"
+        >
+          All
+        </button>
         {members.map((u) => {
           const isHidden = hidden.has(u.id);
           return (
@@ -153,7 +179,8 @@ export default function TripBalanceChart({
           <YAxis
             stroke="var(--muted)"
             fontSize={11}
-            domain={[yMin - pad, yMax + pad]}
+            domain={yDomain}
+            ticks={yTicks}
             tickFormatter={(val) => `${val < 0 ? "-" : ""}${formatMoney(Math.abs(Math.round(val)), currency)}`}
           />
           <Tooltip

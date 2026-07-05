@@ -126,6 +126,13 @@ export default function BalanceChart({
     <div className="bg-card rounded-xl p-4 md:p-6">
       {/* Custom Legend */}
       <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => setHiddenUsers(new Set())}
+          disabled={hiddenUsers.size === 0}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-30 disabled:cursor-default"
+        >
+          All
+        </button>
         {USERS.map((u) => {
           const hidden = hiddenUsers.has(u.name);
           return (
