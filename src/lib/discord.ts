@@ -144,16 +144,24 @@ function money(n: number, currency?: string): string {
   return `$${(abs / 100).toFixed(2)}`;
 }
 
+/** Like money(), but keeps a leading "-" for negative values (rebate/refund entries). */
+function moneySigned(n: number, currency?: string): string {
+  return `${n < 0 ? "-" : ""}${money(n, currency)}`;
+}
+
 /** Prefix embed titles with the trip name when present. */
 function withTrip(title: string, tripName?: string): string {
   return tripName ? `[${tripName}] ${title}` : title;
 }
 
 function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
+  // Negative total = a rebate/refund entry (money going back to people)
+  const isRebate = data.totalAmountCents < 0;
+
   // Payers line
   const payerLines = data.payers.map((p) => {
     const name = getUserById(p.userId)?.name ?? "?";
-    return `${name}: ${money(p.amountCents, data.currency)}`;
+    return `${name}: ${moneySigned(p.amountCents, data.currency)}`;
   });
   const payerStr =
     payerLines.length === 1
@@ -164,15 +172,15 @@ function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
   const shareLines = data.shares
     .map((s) => {
       const name = getUserById(s.userId)?.name ?? "?";
-      return `${name}: ${money(s.amountCents, data.currency)}`;
+      return `${name}: ${moneySigned(s.amountCents, data.currency)}`;
     })
     .join("\n");
 
   const fields = [
-    { name: "Paid by", value: payerStr, inline: true },
-    { name: "Total", value: money(data.totalAmountCents, data.currency), inline: true },
+    { name: isRebate ? "Rebated by" : "Paid by", value: payerStr, inline: true },
+    { name: "Total", value: moneySigned(data.totalAmountCents, data.currency), inline: true },
     { name: "Date", value: data.date, inline: true },
-    { name: "Split", value: shareLines, inline: false },
+    { name: isRebate ? "Credited" : "Split", value: shareLines, inline: false },
   ];
 
   if (data.notes) {
@@ -180,8 +188,11 @@ function buildExpenseEmbed(data: ExpenseNotification): DiscordEmbed {
   }
 
   return {
-    title: withTrip(`New expense: ${data.item}`, data.tripName),
-    color: 0x3b82f6, // blue
+    title: withTrip(
+      `${isRebate ? "New rebate/refund" : "New expense"}: ${data.item}`,
+      data.tripName
+    ),
+    color: isRebate ? 0xf59e0b : 0x3b82f6, // amber for rebate, blue for expense
     fields,
     timestamp: new Date().toISOString(),
     footer: expenseFooter(data),
@@ -213,13 +224,18 @@ function buildSettlementEmbed(data: SettlementNotification): DiscordEmbed {
 }
 
 function buildDeletionEmbed(data: DeletionNotification): DiscordEmbed {
-  const typeLabel = data.transactionType === "settlement" ? "Settlement" : "Expense";
+  const typeLabel =
+    data.transactionType === "settlement"
+      ? "Settlement"
+      : (data.totalAmountCents ?? 0) < 0
+        ? "Rebate/refund"
+        : "Expense";
   const fields = [
     { name: "Type", value: typeLabel, inline: true },
     { name: "Date", value: data.date, inline: true },
   ];
   if (data.totalAmountCents != null) {
-    fields.push({ name: "Amount", value: money(data.totalAmountCents, data.currency), inline: true });
+    fields.push({ name: "Amount", value: moneySigned(data.totalAmountCents, data.currency), inline: true });
   }
 
   return {
