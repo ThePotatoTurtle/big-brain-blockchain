@@ -251,9 +251,10 @@ export async function PUT(request: NextRequest) {
           { status: 400 }
         );
       }
+      // Payer amounts may be negative (rebate/refund entries) but not zero
       for (const p of data.payers) {
-        if (p.amountCents <= 0) {
-          return NextResponse.json({ error: "Each payer must have a positive amount" }, { status: 400 });
+        if (p.amountCents === 0) {
+          return NextResponse.json({ error: "Each payer must have a nonzero amount" }, { status: 400 });
         }
       }
       lines = computeExpenseLines(data.payers, data.shares);
@@ -397,11 +398,11 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Validate each payer has a positive amount
+      // Payer amounts may be negative (rebate/refund entries) but not zero
       for (const p of body.payers) {
-        if (p.amountCents <= 0) {
+        if (p.amountCents === 0) {
           return NextResponse.json(
-            { error: "Each payer must have a positive amount" },
+            { error: "Each payer must have a nonzero amount" },
             { status: 400 }
           );
         }

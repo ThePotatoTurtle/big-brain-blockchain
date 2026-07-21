@@ -156,12 +156,15 @@ export default function TransactionForm() {
 
   const handleSplitEvenly = () => {
     const totalCents = dollarsToCents(totalAmount);
-    if (totalCents <= 0) return;
+    if (totalCents === 0) return;
 
     const included = shares.filter((s) => s.included);
     if (included.length === 0) return;
 
-    const splitAmounts = splitEvenly(totalCents, included.length);
+    // Split the magnitude, then re-apply the sign (supports negative "rebate" entries)
+    const splitAmounts = splitEvenly(Math.abs(totalCents), included.length).map((v) =>
+      totalCents < 0 ? -v : v
+    );
     // Give remainder cent(s) to the first payer instead of first person
     const payerIdx = included.findIndex((s) => s.userId === primaryPayerId);
     if (payerIdx > 0) {
@@ -220,7 +223,8 @@ export default function TransactionForm() {
     .filter((s) => s.included)
     .reduce((sum, s) => sum + dollarsToCents(s.amount), 0);
   const totalCents = dollarsToCents(totalAmount);
-  const sharesMatch = totalCents > 0 && sharesSumCents === totalCents;
+  const sharesMatch = totalCents !== 0 && sharesSumCents === totalCents;
+  const isNegative = totalCents < 0;
   const includedCount = shares.filter((s) => s.included).length;
 
   const pretaxTotal = shares
@@ -236,7 +240,7 @@ export default function TransactionForm() {
   const payersSumCents = isMultiPayer
     ? payers.reduce((sum, p) => sum + dollarsToCents(p.amount), 0)
     : totalCents;
-  const payersMatch = isMultiPayer ? totalCents > 0 && payersSumCents === totalCents : true;
+  const payersMatch = isMultiPayer ? totalCents !== 0 && payersSumCents === totalCents : true;
 
   const hasOtherThanPayer = shares.some((s) => s.included && !payerUserIds.has(s.userId));
   const canSubmitExpense =
@@ -245,7 +249,7 @@ export default function TransactionForm() {
     allPayersSelected &&
     noDuplicatePayers &&
     payersMatch &&
-    totalCents > 0 &&
+    totalCents !== 0 &&
     includedCount > 0 &&
     hasOtherThanPayer &&
     sharesMatch;
@@ -603,7 +607,7 @@ export default function TransactionForm() {
                   >
                     + Add payer
                   </button>
-                  {totalCents > 0 && (
+                  {totalCents !== 0 && (
                     <span
                       className={`text-xs font-mono ${
                         payersMatch ? "text-positive" : "text-negative"
@@ -735,7 +739,7 @@ export default function TransactionForm() {
                 {!restaurantMode && (
                   <button
                     onClick={handleSplitEvenly}
-                    disabled={includedCount === 0 || totalCents <= 0}
+                    disabled={includedCount === 0 || totalCents === 0}
                     className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 active:bg-accent/30 transition-colors disabled:text-muted disabled:bg-background disabled:opacity-50"
                   >
                     Split evenly ({includedCount})
@@ -751,16 +755,21 @@ export default function TransactionForm() {
                   </button>
                 )}
               </div>
-              {totalCents > 0 && includedCount > 0 && (
-                <span
-                  className={`text-xs font-mono ${
-                    sharesMatch ? "text-positive" : "text-negative"
-                  }`}
-                >
-                  {centsToDisplay(sharesSumCents)} / {centsToDisplay(totalCents)}{" "}
-                  {sharesMatch ? "\u2713" : "\u2717"}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {isNegative && includedCount > 0 && (
+                  <span className="text-[11px] text-amber-400">Negative \u2014 rebate/refund</span>
+                )}
+                {totalCents !== 0 && includedCount > 0 && (
+                  <span
+                    className={`text-xs font-mono ${
+                      sharesMatch ? "text-positive" : "text-negative"
+                    }`}
+                  >
+                    {centsToDisplay(sharesSumCents)} / {centsToDisplay(totalCents)}{" "}
+                    {sharesMatch ? "\u2713" : "\u2717"}
+                  </span>
+                )}
+              </div>
             </div>
             {restaurantMode && pretaxTotal > 0 && totalCents > 0 && (
               <div className="text-xs text-muted mt-1">

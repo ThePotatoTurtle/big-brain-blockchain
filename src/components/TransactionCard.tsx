@@ -36,6 +36,10 @@ export default function TransactionCard({
   // real payment, so the "X paid Y" summary line makes no sense for them.
   const isConversion = !!t.conversionBatchId;
 
+  // Negative expense (rebate/refund): the "X paid Y" summary would pick the
+  // wrong people (payer's net is negative), so suppress it and label instead.
+  const isRebate = !isSettlement && (t.totalAmountCents ?? 0) < 0;
+
   // Self entry (trip): no balance lines — payer(s) equal the shares exactly
   const isSelfEntry = !isSettlement && t.lines.length === 0 && !!t.shares?.length;
 
@@ -129,7 +133,13 @@ export default function TransactionCard({
       {/* Expense display */}
       {!isSettlement && !isSelfEntry && (
         <div className="space-y-1.5">
-          {!isConversion && payerLines.length > 0 && (
+          {isRebate && (
+            <div className="text-xs text-amber-400 mb-1">
+              Rebate / refund{" "}
+              <span className="font-mono">{fmt(t.totalAmountCents ?? 0)}</span>
+            </div>
+          )}
+          {!isConversion && !isRebate && payerLines.length > 0 && (
             <div className="text-xs text-muted mb-1">
               {payerLines.map((l, i) => (
                 <span key={l.userId}>

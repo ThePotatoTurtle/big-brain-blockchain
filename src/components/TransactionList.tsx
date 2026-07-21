@@ -320,25 +320,29 @@ export default function TransactionList({
   const editSharesSum = ef
     ? ef.shares.filter((s) => s.included).reduce((sum, s) => sum + dollarsToCents(s.amount), 0)
     : 0;
-  const editSharesMatch = editTotalCents > 0 && editSharesSum === editTotalCents;
+  const editSharesMatch = editTotalCents !== 0 && editSharesSum === editTotalCents;
+  const editIsNegative = editTotalCents < 0;
   const editIncludedCount = ef ? ef.shares.filter((s) => s.included).length : 0;
   const editIsMultiPayer = ef ? ef.payers.length > 1 : false;
   const editPayersSumCents = ef && editIsMultiPayer
     ? ef.payers.reduce((sum, p) => sum + dollarsToCents(p.amount), 0)
     : editTotalCents;
-  const editPayersMatch = editIsMultiPayer ? editTotalCents > 0 && editPayersSumCents === editTotalCents : true;
+  const editPayersMatch = editIsMultiPayer ? editTotalCents !== 0 && editPayersSumCents === editTotalCents : true;
   const editPayerUserIds = new Set(ef?.payers.map((p) => p.userId) ?? []);
   const editHasOtherThanPayer = ef ? ef.shares.some((s) => s.included && !editPayerUserIds.has(s.userId)) : false;
 
   const canSubmitEdit = ef
     ? ef.type === "expense"
-      ? ef.item.trim() && ef.date && ef.payers.every((p) => p.userId > 0) && editPayersMatch && editTotalCents > 0 && editIncludedCount > 0 && editHasOtherThanPayer && editSharesMatch
+      ? ef.item.trim() && ef.date && ef.payers.every((p) => p.userId > 0) && editPayersMatch && editTotalCents !== 0 && editIncludedCount > 0 && editHasOtherThanPayer && editSharesMatch
       : ef.item.trim() && ef.date && ef.fromUserId > 0 && ef.toUserId > 0 && dollarsToCents(ef.settlementAmount) > 0 && ef.fromUserId !== ef.toUserId
     : false;
 
   const handleEditSplitEvenly = () => {
-    if (!ef || editTotalCents <= 0 || editIncludedCount === 0) return;
-    const amounts = splitEvenly(editTotalCents, editIncludedCount);
+    if (!ef || editTotalCents === 0 || editIncludedCount === 0) return;
+    // Split the magnitude, re-apply sign (supports negative rebate entries)
+    const amounts = splitEvenly(Math.abs(editTotalCents), editIncludedCount).map((v) =>
+      editTotalCents < 0 ? -v : v
+    );
     const primaryPayerId = ef.payers[0]?.userId ?? 0;
     const included = ef.shares.filter((s) => s.included);
     const payerIdx = included.findIndex((s) => s.userId === primaryPayerId);
@@ -595,7 +599,7 @@ export default function TransactionList({
                           onClick={() => setEditForm({ ...ef, payers: [...ef.payers, { id: `ep-${editPayerIdCounter++}`, userId: 0, amount: "" }] })}
                           className="text-xs text-accent hover:text-accent/80"
                         >+ Add payer</button>
-                        {editTotalCents > 0 && (
+                        {editTotalCents !== 0 && (
                           <span className={`text-xs font-mono ${editPayersMatch ? "text-positive" : "text-negative"}`}>
                             {centsToDisplay(editPayersSumCents)} / {centsToDisplay(editTotalCents)} {editPayersMatch ? "\u2713" : "\u2717"}
                           </span>
@@ -663,10 +667,13 @@ export default function TransactionList({
                   <div className="flex items-center justify-between mt-3">
                     <button
                       onClick={handleEditSplitEvenly}
-                      disabled={editIncludedCount === 0 || editTotalCents <= 0}
+                      disabled={editIncludedCount === 0 || editTotalCents === 0}
                       className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 disabled:text-muted disabled:bg-background disabled:opacity-50"
                     >Split evenly ({editIncludedCount})</button>
-                    {editTotalCents > 0 && editIncludedCount > 0 && (
+                    {editIsNegative && editIncludedCount > 0 && (
+                      <span className="text-[11px] text-amber-400 mr-2">Negative \u2014 rebate/refund</span>
+                    )}
+                    {editTotalCents !== 0 && editIncludedCount > 0 && (
                       <span className={`text-xs font-mono ${editSharesMatch ? "text-positive" : "text-negative"}`}>
                         {centsToDisplay(editSharesSum)} / {centsToDisplay(editTotalCents)} {editSharesMatch ? "\u2713" : "\u2717"}
                       </span>

@@ -94,21 +94,22 @@ export default function TripEditModal({
   const primaryPayerId = payers[0]?.userId ?? 0;
   const totalMinor = toMinor(totalAmount);
   const sharesSum = shares.filter((s) => s.included).reduce((sum, s) => sum + toMinor(s.amount), 0);
-  const sharesMatch = totalMinor > 0 && sharesSum === totalMinor;
+  const sharesMatch = totalMinor !== 0 && sharesSum === totalMinor;
+  const isNegative = totalMinor < 0;
   const includedCount = shares.filter((s) => s.included).length;
   const payersSum = isMultiPayer
     ? payers.reduce((sum, p) => sum + toMinor(p.amount), 0)
     : totalMinor;
-  const payersMatch = isMultiPayer ? totalMinor > 0 && payersSum === totalMinor : true;
+  const payersMatch = isMultiPayer ? totalMinor !== 0 && payersSum === totalMinor : true;
 
   // Self entries allowed on trips — no hasOtherThanPayer requirement
   const canSubmit = isSettlement
     ? date && fromUserId > 0 && toUserId > 0 && toMinor(settlementAmount) > 0 && fromUserId !== toUserId
     : item.trim() && date && payers.every((p) => p.userId > 0) && payersMatch &&
-      totalMinor > 0 && includedCount > 0 && sharesMatch && category !== "";
+      totalMinor !== 0 && includedCount > 0 && sharesMatch && category !== "";
 
   const handleSplitEvenly = () => {
-    if (totalMinor <= 0 || includedCount === 0) return;
+    if (totalMinor === 0 || includedCount === 0) return;
     const included = shares.filter((s) => s.included);
     const base = Math.floor(totalMinor / included.length);
     const remainder = totalMinor - base * included.length;
@@ -360,7 +361,7 @@ export default function TripEditModal({
                   >
                     + Add payer
                   </button>
-                  {totalMinor > 0 && (
+                  {totalMinor !== 0 && (
                     <span className={`text-xs font-mono ${payersMatch ? "text-positive" : "text-negative"}`}>
                       {fmt(payersSum)} / {fmt(totalMinor)} {payersMatch ? "✓" : "✗"}
                     </span>
@@ -438,16 +439,21 @@ export default function TripEditModal({
               <div className="flex items-center justify-between mt-3">
                 <button
                   onClick={handleSplitEvenly}
-                  disabled={includedCount === 0 || totalMinor <= 0}
+                  disabled={includedCount === 0 || totalMinor === 0}
                   className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 disabled:text-muted disabled:bg-background disabled:opacity-50"
                 >
                   Split evenly ({includedCount})
                 </button>
-                {totalMinor > 0 && includedCount > 0 && (
-                  <span className={`text-xs font-mono ${sharesMatch ? "text-positive" : "text-negative"}`}>
-                    {fmt(sharesSum)} / {fmt(totalMinor)} {sharesMatch ? "✓" : "✗"}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {isNegative && includedCount > 0 && (
+                    <span className="text-[11px] text-amber-400">Negative — rebate/refund</span>
+                  )}
+                  {totalMinor !== 0 && includedCount > 0 && (
+                    <span className={`text-xs font-mono ${sharesMatch ? "text-positive" : "text-negative"}`}>
+                      {fmt(sharesSum)} / {fmt(totalMinor)} {sharesMatch ? "✓" : "✗"}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </>

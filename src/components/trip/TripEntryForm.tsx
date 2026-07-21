@@ -171,7 +171,7 @@ export default function TripEntryForm({
 
   const handleSplitEvenly = () => {
     const totalMinor = toMinor(totalAmount);
-    if (totalMinor <= 0) return;
+    if (totalMinor === 0) return;
     const included = shares.filter((s) => s.included);
     if (included.length === 0) return;
 
@@ -233,7 +233,8 @@ export default function TripEntryForm({
     .filter((s) => s.included)
     .reduce((sum, s) => sum + toMinor(s.amount), 0);
   const totalMinor = toMinor(totalAmount);
-  const sharesMatch = totalMinor > 0 && sharesSum === totalMinor;
+  const sharesMatch = totalMinor !== 0 && sharesSum === totalMinor;
+  const isNegative = totalMinor < 0;
   const includedCount = shares.filter((s) => s.included).length;
 
   const pretaxTotal = shares
@@ -249,7 +250,7 @@ export default function TripEntryForm({
   const payersSum = isMultiPayer
     ? payers.reduce((sum, p) => sum + toMinor(p.amount), 0)
     : totalMinor;
-  const payersMatch = isMultiPayer ? totalMinor > 0 && payersSum === totalMinor : true;
+  const payersMatch = isMultiPayer ? totalMinor !== 0 && payersSum === totalMinor : true;
 
   const methodValue = method === "Other" ? methodOther.trim() : method;
 
@@ -260,7 +261,7 @@ export default function TripEntryForm({
     allPayersSelected &&
     noDuplicatePayers &&
     payersMatch &&
-    totalMinor > 0 &&
+    totalMinor !== 0 &&
     includedCount > 0 &&
     sharesMatch &&
     category !== "";
@@ -682,7 +683,7 @@ export default function TripEntryForm({
                   >
                     + Add payer
                   </button>
-                  {totalMinor > 0 && (
+                  {totalMinor !== 0 && (
                     <span
                       className={`text-xs font-mono ${payersMatch ? "text-positive" : "text-negative"}`}
                     >
@@ -806,7 +807,7 @@ export default function TripEntryForm({
                 {!restaurantMode && (
                   <button
                     onClick={handleSplitEvenly}
-                    disabled={includedCount === 0 || totalMinor <= 0}
+                    disabled={includedCount === 0 || totalMinor === 0}
                     className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 transition-colors disabled:text-muted disabled:bg-background disabled:opacity-50"
                   >
                     Split evenly ({includedCount})
@@ -822,13 +823,18 @@ export default function TripEntryForm({
                   </button>
                 )}
               </div>
-              {totalMinor > 0 && includedCount > 0 && (
-                <span
-                  className={`text-xs font-mono ${sharesMatch ? "text-positive" : "text-negative"}`}
-                >
-                  {fmt(sharesSum)} / {fmt(totalMinor)} {sharesMatch ? "✓" : "✗"}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {isNegative && includedCount > 0 && (
+                  <span className="text-[11px] text-amber-400">Negative — rebate/refund</span>
+                )}
+                {totalMinor !== 0 && includedCount > 0 && (
+                  <span
+                    className={`text-xs font-mono ${sharesMatch ? "text-positive" : "text-negative"}`}
+                  >
+                    {fmt(sharesSum)} / {fmt(totalMinor)} {sharesMatch ? "✓" : "✗"}
+                  </span>
+                )}
+              </div>
             </div>
             {restaurantMode && pretaxTotal > 0 && totalMinor > 0 && (
               <div className="text-xs text-muted mt-1">
