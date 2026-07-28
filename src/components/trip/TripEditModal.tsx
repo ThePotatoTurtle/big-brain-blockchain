@@ -81,7 +81,12 @@ export default function TripEditModal({
   const [settlementAmount, setSettlementAmount] = useState(
     fromLine ? minorToInput(fromLine.amount) : ""
   );
-  const [category, setCategory] = useState(t.category ?? "");
+  // A category that was renamed/removed from the config can't be saved back
+  // (the API rejects unknown categories). Start unset so the user is prompted
+  // to re-pick, and surface the old value instead of failing cryptically.
+  const legacyCategory =
+    t.category && !trip.categories.includes(t.category) ? t.category : null;
+  const [category, setCategory] = useState(legacyCategory ? "" : t.category ?? "");
   const initMethodKnown = !t.paymentMethod || trip.paymentMethods.includes(t.paymentMethod);
   const [method, setMethod] = useState(
     t.paymentMethod ? (initMethodKnown ? t.paymentMethod : "Others") : ""
@@ -111,9 +116,14 @@ export default function TripEditModal({
   const handleSplitEvenly = () => {
     if (totalMinor === 0 || includedCount === 0) return;
     const included = shares.filter((s) => s.included);
-    const base = Math.floor(totalMinor / included.length);
-    const remainder = totalMinor - base * included.length;
-    const amounts = included.map((_, i) => base + (i < remainder ? 1 : 0));
+    // Split the magnitude so index 0 always carries the extra cent, then
+    // re-apply the sign. The swap below hands that extra to the payer — for a
+    // negative entry that's the person rebating.
+    const sign = totalMinor < 0 ? -1 : 1;
+    const mag = Math.abs(totalMinor);
+    const base = Math.floor(mag / included.length);
+    const remainder = mag - base * included.length;
+    const amounts = included.map((_, i) => (base + (i < remainder ? 1 : 0)) * sign);
     const payerIdx = included.findIndex((s) => s.userId === primaryPayerId);
     if (payerIdx > 0) {
       [amounts[0], amounts[payerIdx]] = [amounts[payerIdx], amounts[0]];
@@ -230,6 +240,11 @@ export default function TripEditModal({
                 <option value="" disabled>Select...</option>
                 {trip.categories.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
+              {legacyCategory && category === "" && (
+                <p className="text-[11px] text-amber-400 mt-1">
+                  Was &ldquo;{legacyCategory}&rdquo; — no longer available, pick a new one.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs text-muted mb-1">Payment method</label>

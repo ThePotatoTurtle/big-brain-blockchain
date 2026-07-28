@@ -19,12 +19,22 @@ export const japan2026: TripConfig = {
     { code: "CAD", symbol: "$", decimals: 2, axisStep: 10000 }, // $100 ticks
     { code: "JPY", symbol: "¥", decimals: 0, axisStep: 10000 }, // ¥10,000 ticks
   ],
+  // Ordered by expected entry frequency (most-used first — it's a required
+  // field on every entry). Boundary rules:
+  //   Restaurants        — prepared/made-to-order: restaurants, bars, cafés,
+  //                        izakaya, street food & market stalls.
+  //   Konbini & Vending  — pre-packaged/self-serve: konbini, vending machines,
+  //                        supermarkets, packaged snacks.
+  //   Shopping vs Activities — take home an object → Shopping;
+  //                            consume an experience → Activities.
   categories: [
-    "Accommodation",
-    "Activities",
-    "Food & Drinks",
+    "Restaurants",
+    "Konbini & Vending",
     "Shopping",
+    "Activities",
     "Transportation",
+    "Accommodation",
+    "Flights",
     "Others",
   ],
   paymentMethods: ["Card", "Cash", "Other"],

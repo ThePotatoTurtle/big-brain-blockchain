@@ -193,8 +193,22 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
 
   // --- Stats helpers ---
   const statsFor = (code: string) => summary?.stats[code] ?? {};
-  const categoriesWithSpend = (code: string) =>
-    trip.categories.filter((cat) => statsFor(code)[cat]);
+  /**
+   * Categories to show in the breakdown: the configured ones (in config order)
+   * PLUS any category present in the data but no longer configured — e.g. a
+   * category that was later renamed or removed. Without the second group the
+   * category bars, grand total and per-person table would all silently
+   * undercount, since every one of them derives from this list.
+   */
+  const categoriesWithSpend = (code: string) => {
+    const stats = statsFor(code);
+    const configured = trip.categories.filter((cat) => stats[cat]);
+    const orphaned = Object.keys(stats)
+      .filter((cat) => !trip.categories.includes(cat))
+      .sort();
+    return [...configured, ...orphaned];
+  };
+  const isOrphanedCategory = (cat: string) => !trip.categories.includes(cat);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
@@ -375,7 +389,14 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
                   {cats.map((cat, i) => (
                     <div key={cat}>
                       <div className="flex justify-between text-xs mb-0.5">
-                        <span>{cat}</span>
+                        <span>
+                          {cat}
+                          {isOrphanedCategory(cat) && (
+                            <span className="text-amber-400 ml-1" title="No longer a configured category">
+                              (legacy)
+                            </span>
+                          )}
+                        </span>
                         <span className="font-mono">{formatMoney(catTotals[i], cur)}</span>
                       </div>
                       <div className="h-2 bg-background rounded-full overflow-hidden">

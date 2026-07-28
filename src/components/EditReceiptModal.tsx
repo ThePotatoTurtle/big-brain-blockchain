@@ -66,8 +66,11 @@ export default function EditReceiptModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Trip fields
-  const [category, setCategory] = useState(t.category ?? "");
+  // Trip fields. A renamed/removed category can't be saved back (the API
+  // rejects unknown categories), so start unset and surface the old value.
+  const legacyCategory =
+    trip && t.category && !trip.categories.includes(t.category) ? t.category : null;
+  const [category, setCategory] = useState(legacyCategory ? "" : t.category ?? "");
   const initMethodKnown = !t.paymentMethod || (trip?.paymentMethods.includes(t.paymentMethod) ?? false);
   const [method, setMethod] = useState(
     t.paymentMethod ? (initMethodKnown ? t.paymentMethod : "Others") : ""
@@ -228,6 +231,11 @@ export default function EditReceiptModal({
                 <option value="" disabled>Select...</option>
                 {trip.categories.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
+              {legacyCategory && category === "" && (
+                <p className="text-[11px] text-amber-400 mt-1">
+                  Was &ldquo;{legacyCategory}&rdquo; — no longer available, pick a new one.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs text-muted mb-1">Payment method</label>

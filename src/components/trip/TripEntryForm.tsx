@@ -175,9 +175,14 @@ export default function TripEntryForm({
     const included = shares.filter((s) => s.included);
     if (included.length === 0) return;
 
-    const base = Math.floor(totalMinor / included.length);
-    const remainder = totalMinor - base * included.length;
-    const splitAmounts = included.map((_, i) => base + (i < remainder ? 1 : 0));
+    // Split the magnitude so index 0 always carries the extra cent, then
+    // re-apply the sign. The swap below hands that extra to the payer — for a
+    // negative entry that's the person rebating.
+    const sign = totalMinor < 0 ? -1 : 1;
+    const mag = Math.abs(totalMinor);
+    const base = Math.floor(mag / included.length);
+    const remainder = mag - base * included.length;
+    const splitAmounts = included.map((_, i) => (base + (i < remainder ? 1 : 0)) * sign);
     const payerIdx = included.findIndex((s) => s.userId === primaryPayerId);
     if (payerIdx > 0) {
       [splitAmounts[0], splitAmounts[payerIdx]] = [splitAmounts[payerIdx], splitAmounts[0]];
