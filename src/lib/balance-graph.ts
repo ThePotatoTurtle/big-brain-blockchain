@@ -1,7 +1,93 @@
 import { Resvg } from "@resvg/resvg-js";
+import { parse as parseFont } from "opentype.js";
 import { prisma } from "@/lib/db";
 import { getUserById } from "@/lib/users";
-import { NOTO_SANS_TTF, CHART_FONT_FAMILY } from "@/lib/fonts/noto-sans";
+import { NOTO_SANS_TTF } from "@/lib/fonts/noto-sans";
+
+/**
+ * Text is converted to vector PATHS rather than emitted as <text>.
+ *
+ * Renderers resolve <text> through the host's font stack, and serverless hosts
+ * ship no fonts — which produced tofu boxes, and then blank labels, in
+ * production. resvg-js also has no in-memory font option in v2.6 (only
+ * `fontFiles` paths; `fontBuffers` is silently ignored). Baking glyphs into
+ * paths removes font resolution from the render step entirely, so labels look
+ * identical everywhere regardless of what the host has installed.
+ */
+const font = parseFont(
+  NOTO_SANS_TTF.buffer.slice(
+    NOTO_SANS_TTF.byteOffset,
+    NOTO_SANS_TTF.byteOffset + NOTO_SANS_TTF.length
+  ) as ArrayBuffer
+);
+
+type Anchor = "start" | "middle" | "end";
+
+const round2 = (v: number) => Number(v.toFixed(2));
+
+/**
+ * Serialise opentype path commands to SVG path data.
+ *
+ * Deliberately not using opentype's own toPathData(): it emits no `Z`, so every
+ * contour stays open, and resvg then silently drops geometry part-way through a
+ * long path (this is what truncated labels mid-word). Closing each contour and
+ * separating every token fixes it.
+ */
+function serializeCommands(
+  commands: ReturnType<typeof font.getPath>["commands"]
+): string {
+  const out: (string | number)[] = [];
+  let open = false;
+  for (const c of commands) {
+    switch (c.type) {
+      case "M":
+        if (open) out.push("Z");
+        out.push("M", round2(c.x), round2(c.y));
+        open = true;
+        break;
+      case "L":
+        out.push("L", round2(c.x), round2(c.y));
+        break;
+      case "Q":
+        out.push("Q", round2(c.x1), round2(c.y1), round2(c.x), round2(c.y));
+        break;
+      case "C":
+        out.push(
+          "C",
+          round2(c.x1), round2(c.y1),
+          round2(c.x2), round2(c.y2),
+          round2(c.x), round2(c.y)
+        );
+        break;
+      case "Z":
+        out.push("Z");
+        open = false;
+        break;
+    }
+  }
+  if (open) out.push("Z");
+  return out.join(" ");
+}
+
+/** An SVG <path> of `text` drawn at (x, y), y being the text baseline. */
+function textPath(
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  fill: string,
+  anchor: Anchor = "start"
+): string {
+  const width = font.getAdvanceWidth(text, size);
+  const tx = anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
+  const d = serializeCommands(font.getPath(text, tx, y, size).commands);
+  return `<path d="${d}" fill="${fill}"/>`;
+}
+
+/** Rendered width of `text`, for laying the legend out without overlaps. */
+function textWidth(text: string, size: number): number {
+  return font.getAdvanceWidth(text, size);
+}
 
 /* ------------------------------------------------------------------ *
  * Tunables — edit these directly, no config file needed.
@@ -34,15 +120,10 @@ const BG = "#0F172A";
 const GRID = "#334155";
 const AXIS_TEXT = "#94A3B8";
 const TITLE_TEXT = "#F1F5F9";
-// Must match the embedded font — system fonts are deliberately not consulted,
-// so any other family name would render as tofu boxes in production.
-const FONT = CHART_FONT_FAMILY;
 
-function esc(s: string): string {
-  return s.replace(/[<>&"']/g, (c) =>
-    ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c]!
-  );
-}
+// No font-family constant and no XML escaping helper: every label goes through
+// textPath() as glyph outlines, so nothing user-facing is ever interpolated
+// into markup as text.
 
 /** "$1,250" / "-$50" — axis labels land on whole dollars by construction. */
 function axisLabel(cents: number): string {
@@ -191,18 +272,25 @@ export async function generateBalanceGraphPng(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">`,
     `<rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>`,
     // ASCII only — the embedded font is a latin subset (no em dash)
-    `<text x="${PAD_L}" y="26" font-family="${FONT}" font-size="15" font-weight="bold" fill="${TITLE_TEXT}">Balance history - last ${GRAPH_LOOKBACK_MONTHS} months</text>`
+    textPath(
+      `Balance history - last ${GRAPH_LOOKBACK_MONTHS} months`,
+      PAD_L,
+      26,
+      15,
+      TITLE_TEXT
+    )
   );
 
-  // Legend (name + current balance), laid out left→right under the title
+  // Legend (name + current balance), laid out left→right under the title.
+  // Advance by measured glyph width so entries can't overlap.
   let lx = PAD_L;
   for (const s of series) {
     const label = `${s.name}  ${exactLabel(s.values[s.values.length - 1])}`;
     parts.push(
       `<circle cx="${lx + 5}" cy="42" r="5" fill="${s.color}"/>`,
-      `<text x="${lx + 16}" y="46" font-family="${FONT}" font-size="12" fill="${AXIS_TEXT}">${esc(label)}</text>`
+      textPath(label, lx + 16, 46, 12, AXIS_TEXT)
     );
-    lx += 26 + label.length * 6.6;
+    lx += 30 + textWidth(label, 12);
   }
 
   // Horizontal grid + Y labels
@@ -211,14 +299,14 @@ export async function generateBalanceGraphPng(
     const isZero = v === 0;
     parts.push(
       `<line x1="${PAD_L}" y1="${gy}" x2="${PAD_L + PLOT_W}" y2="${gy}" stroke="${GRID}" stroke-width="${isZero ? 1.5 : 1}"${isZero ? ' stroke-dasharray="6 3"' : ' stroke-dasharray="3 3"'}/>`,
-      `<text x="${PAD_L - 10}" y="${gy + 4}" text-anchor="end" font-family="${FONT}" font-size="12" fill="${AXIS_TEXT}">${axisLabel(v)}</text>`
+      textPath(axisLabel(v), PAD_L - 10, gy + 4, 12, AXIS_TEXT, "end")
     );
   }
 
   // X labels
   for (const ts of xTicks) {
     parts.push(
-      `<text x="${x(ts)}" y="${PAD_T + PLOT_H + 22}" text-anchor="middle" font-family="${FONT}" font-size="12" fill="${AXIS_TEXT}">${fmtDate(ts)}</text>`
+      textPath(fmtDate(ts), x(ts), PAD_T + PLOT_H + 22, 12, AXIS_TEXT, "middle")
     );
   }
 
@@ -236,20 +324,7 @@ export async function generateBalanceGraphPng(
 
   parts.push("</svg>");
 
-  // Render with ONLY the embedded font. loadSystemFonts:false is the whole
-  // point — serverless hosts ship no fonts, and letting it fall back silently
-  // is what produced tofu boxes before.
-  //
-  // `fontBuffers` is supported by the native binding but missing from the
-  // v2.6 type definitions (which only declare fontFiles/fontDirs), hence the
-  // cast. Verified honored at runtime — passing no font renders no glyphs.
-  const options = {
-    font: {
-      fontBuffers: [NOTO_SANS_TTF],
-      loadSystemFonts: false,
-      defaultFontFamily: CHART_FONT_FAMILY,
-    },
-  } as unknown as ConstructorParameters<typeof Resvg>[1];
-
-  return Buffer.from(new Resvg(parts.join(""), options).render().asPng());
+  // No font config needed — every label is already a <path>, so the renderer
+  // never has to resolve a typeface.
+  return Buffer.from(new Resvg(parts.join("")).render().asPng());
 }
