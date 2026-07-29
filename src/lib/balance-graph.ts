@@ -145,6 +145,28 @@ function fmtDate(ts: number): string {
   });
 }
 
+/** "Jan 28, 2026" — used in the title when the window is re-anchored. */
+function fmtDateFull(ts: number): string {
+  return new Date(ts).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** YYYY-MM-DD for a UTC timestamp. */
+function toDateStr(ts: number): string {
+  return new Date(ts).toISOString().split("T")[0];
+}
+
+/** Shift a UTC timestamp by whole months. */
+function shiftMonths(ts: number, months: number): number {
+  const d = new Date(ts);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.getTime();
+}
+
 interface Series {
   userId: number;
   name: string;
@@ -155,16 +177,24 @@ interface Series {
 /**
  * Renders a balance-history PNG for the given users.
  *
- * Window ends at the newest transaction date in the DB (NOT "today" and not the
- * triggering transaction's date — a backdated entry must not shorten the axis),
- * and starts GRAPH_LOOKBACK_MONTHS earlier. Balances are accumulated from the
- * very first transaction so the window opens at the correct carried-in value.
+ * Window is normally the GRAPH_LOOKBACK_MONTHS ending at the newest transaction
+ * date in the DB — NOT "today", so a backdated entry can't shorten the axis.
+ *
+ * Exception: if `triggerDate` is older than that window, the entry would be
+ * invisible off the left edge, so the window re-anchors to start at the entry's
+ * own date and run GRAPH_LOOKBACK_MONTHS forward from there (ending before the
+ * newest entry).
+ *
+ * Balances always accumulate from the very first transaction, so the window
+ * opens at the correct carried-in value regardless of where it sits.
  *
  * Main ledger only (trip balances are isolated and may be non-CAD).
  * Returns null when there's nothing meaningful to draw.
  */
 export async function generateBalanceGraphPng(
-  userIds: number[]
+  userIds: number[],
+  /** Date (YYYY-MM-DD) of the transaction that triggered this graph. */
+  triggerDate?: string
 ): Promise<Buffer | null> {
   const involved = Array.from(new Set(userIds)).filter((id) => getUserById(id));
   if (involved.length === 0) return null;
@@ -203,21 +233,46 @@ export async function generateBalanceGraphPng(
   const latestStr = sortedDates[sortedDates.length - 1];
   const latestTs = Date.parse(`${latestStr}T00:00:00Z`);
 
-  const startDate = new Date(latestTs);
-  startDate.setUTCMonth(startDate.getUTCMonth() - GRAPH_LOOKBACK_MONTHS);
-  const startTs = startDate.getTime();
-  const startStr = startDate.toISOString().split("T")[0];
+  // Default window: the GRAPH_LOOKBACK_MONTHS leading up to the newest entry.
+  let endTs = latestTs;
+  let startTs = shiftMonths(latestTs, -GRAPH_LOOKBACK_MONTHS);
+  let reanchored = false;
+
+  // If the triggering entry is older than that window, it would sit off the
+  // left edge and be invisible. Re-anchor instead: start AT the entry's date
+  // and run forward. Because the trigger predates (latest - lookback), the new
+  // end is always before the newest entry — the usual "axis ends at the latest
+  // entry" rule is deliberately dropped here so the entry is actually shown.
+  if (triggerDate) {
+    const triggerTs = Date.parse(`${triggerDate}T00:00:00Z`);
+    if (!Number.isNaN(triggerTs) && triggerTs < startTs) {
+      startTs = triggerTs;
+      endTs = shiftMonths(triggerTs, GRAPH_LOOKBACK_MONTHS);
+      reanchored = true;
+    }
+  }
+
+  const startStr = toDateStr(startTs);
+  const endStr = toDateStr(endTs);
 
   // Balance carried into the window + every snapshot inside it
   let carry = new Map<number, number>();
   const windowDates: string[] = [];
   for (const d of sortedDates) {
     if (d <= startStr) carry = byDate.get(d)!;
-    else windowDates.push(d);
+    else if (d <= endStr) windowDates.push(d);
   }
-  if (windowDates.length === 0) return null;
 
-  const timestamps = [startTs, ...windowDates.map((d) => Date.parse(`${d}T00:00:00Z`))];
+  // Always anchor the series to both edges so lines span the full axis, even
+  // when nothing happened inside the window.
+  const lastSnapshot = windowDates.length
+    ? byDate.get(windowDates[windowDates.length - 1])!
+    : carry;
+  const timestamps = [
+    startTs,
+    ...windowDates.map((d) => Date.parse(`${d}T00:00:00Z`)),
+    endTs,
+  ];
   const series: Series[] = involved.map((id) => {
     const u = getUserById(id)!;
     return {
@@ -227,6 +282,7 @@ export async function generateBalanceGraphPng(
       values: [
         carry.get(id) ?? 0,
         ...windowDates.map((d) => byDate.get(d)!.get(id) ?? 0),
+        lastSnapshot.get(id) ?? 0, // hold the final balance out to the right edge
       ],
     };
   });
@@ -255,7 +311,7 @@ export async function generateBalanceGraphPng(
   for (let v = yLo; v <= yHi; v += step) yTicks.push(v);
 
   // ---- scales ----
-  const tSpan = latestTs - startTs || 1;
+  const tSpan = endTs - startTs || 1;
   const x = (ts: number) => PAD_L + ((ts - startTs) / tSpan) * PLOT_W;
   const y = (v: number) => PAD_T + ((yHi - v) / (yHi - yLo)) * PLOT_H;
 
@@ -271,9 +327,13 @@ export async function generateBalanceGraphPng(
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">`,
     `<rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>`,
-    // ASCII only — the embedded font is a latin subset (no em dash)
+    // ASCII only — the embedded font is a latin subset (no em dash).
+    // Say so explicitly when re-anchored: the window no longer ends at the
+    // newest entry, so "last N months" would be wrong.
     textPath(
-      `Balance history - last ${GRAPH_LOOKBACK_MONTHS} months`,
+      reanchored
+        ? `Balance history - ${GRAPH_LOOKBACK_MONTHS} months from ${fmtDateFull(startTs)}`
+        : `Balance history - last ${GRAPH_LOOKBACK_MONTHS} months`,
       PAD_L,
       26,
       15,
@@ -318,7 +378,7 @@ export async function generateBalanceGraphPng(
     parts.push(
       `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`,
       // Emphasise where each line ends
-      `<circle cx="${x(latestTs).toFixed(1)}" cy="${y(s.values[s.values.length - 1]).toFixed(1)}" r="4" fill="${s.color}"/>`
+      `<circle cx="${x(endTs).toFixed(1)}" cy="${y(s.values[s.values.length - 1]).toFixed(1)}" r="4" fill="${s.color}"/>`
     );
   }
 

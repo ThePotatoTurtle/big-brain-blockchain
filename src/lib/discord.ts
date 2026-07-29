@@ -369,7 +369,9 @@ async function maybeBalanceGraph(
       ? [...data.payers.map((p) => p.userId), ...data.shares.map((s) => s.userId)]
       : [data.fromUserId, data.toUserId];
 
-  return generateBalanceGraphPng(userIds);
+  // Pass the entry's own date so a heavily backdated one re-anchors the window
+  // instead of falling off the left edge.
+  return generateBalanceGraphPng(userIds, data.date);
 }
 
 export async function sendDiscordNotification(
