@@ -1,4 +1,7 @@
 import { getUserById } from "@/lib/users";
+import { generateBalanceGraphPng, LARGE_TX_THRESHOLD_CENTS } from "@/lib/balance-graph";
+
+const GRAPH_FILENAME = "balance.png";
 
 /** Optional trip context shared by all notification types. */
 interface TripContext {
@@ -343,6 +346,30 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + "\u2026";
 }
 
+/**
+ * Balance graph for large transactions. Main-ledger new expenses/settlements
+ * only \u2014 trip balances are isolated and may be non-CAD, so a CAD balance chart
+ * wouldn't be meaningful there. Uses the absolute amount so a large negative
+ * (rebate/refund) qualifies too.
+ */
+async function maybeBalanceGraph(
+  data: TransactionNotification
+): Promise<Buffer | null> {
+  if (data.type !== "expense" && data.type !== "settlement") return null;
+  if (data.tripName) return null;
+
+  const amount =
+    data.type === "expense" ? data.totalAmountCents : data.amountCents;
+  if (Math.abs(amount) < LARGE_TX_THRESHOLD_CENTS) return null;
+
+  const userIds =
+    data.type === "expense"
+      ? [...data.payers.map((p) => p.userId), ...data.shares.map((s) => s.userId)]
+      : [data.fromUserId, data.toUserId];
+
+  return generateBalanceGraphPng(userIds);
+}
+
 export async function sendDiscordNotification(
   data: TransactionNotification
 ): Promise<void> {
@@ -390,19 +417,65 @@ export async function sendDiscordNotification(
     }
   }
 
-  const payload = JSON.stringify({
+  const payloadJson = JSON.stringify({
     username: "Big Brain Blockchain",
     embeds,
   });
 
-  // Retry up to 3 times (transient TLS/network errors are common)
+  // 1. The transaction message itself — plain JSON, keeps the receipt-photo
+  //    embeds entirely to itself.
+  await postWebhook(url, () => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payloadJson,
+  }));
+
+  // 2. Balance graph as a SEPARATE follow-up message, so it can never contend
+  //    with receipt images for the main embed's single image slot. Generated
+  //    after the main send so a slow render doesn't delay the notification, and
+  //    fully isolated so a failure here never affects the message above.
+  try {
+    const graphPng = await maybeBalanceGraph(data);
+    if (!graphPng) return;
+
+    const graphPayload = JSON.stringify({
+      username: "Big Brain Blockchain",
+      embeds: [
+        {
+          title: `📈 Balance history — ${"item" in data ? data.item : ""}`,
+          color: embed.color,
+          fields: [],
+          timestamp: new Date().toISOString(),
+          image: { url: `attachment://${GRAPH_FILENAME}` },
+        },
+      ],
+    });
+
+    await postWebhook(url, () => {
+      // Fresh body per attempt so retries can't reuse a consumed stream
+      const form = new FormData();
+      form.append("payload_json", graphPayload);
+      form.append(
+        "files[0]",
+        new Blob([new Uint8Array(graphPng)], { type: "image/png" }),
+        GRAPH_FILENAME
+      );
+      // No explicit Content-Type — fetch adds the multipart boundary itself
+      return { method: "POST", body: form };
+    });
+  } catch (err) {
+    console.error("Balance graph message failed:", err);
+  }
+}
+
+/** POST to the webhook, retrying up to 3 times (transient TLS errors are common). */
+async function postWebhook(
+  url: string,
+  buildRequest: () => RequestInit
+): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: payload,
-      });
+      const res = await fetch(url, buildRequest());
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         console.error(`Discord webhook failed (${res.status}):`, text);
