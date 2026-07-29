@@ -2,6 +2,8 @@ import { getUserById } from "@/lib/users";
 import { generateBalanceGraphPng, LARGE_TX_THRESHOLD_CENTS } from "@/lib/balance-graph";
 
 const GRAPH_FILENAME = "balance.png";
+/** Delay before the graph message so it reliably lands after the main one. */
+const GRAPH_FOLLOWUP_DELAY_MS = 3_000;
 
 /** Optional trip context shared by all notification types. */
 interface TripContext {
@@ -437,6 +439,10 @@ export async function sendDiscordNotification(
   try {
     const graphPng = await maybeBalanceGraph(data);
     if (!graphPng) return;
+
+    // Discord orders by receipt time; a brief gap guarantees the chart lands
+    // after the transaction message rather than racing ahead of it.
+    await new Promise((r) => setTimeout(r, GRAPH_FOLLOWUP_DELAY_MS));
 
     const graphPayload = JSON.stringify({
       username: "Big Brain Blockchain",

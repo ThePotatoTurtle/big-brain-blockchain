@@ -1,6 +1,7 @@
-import sharp from "sharp";
+import { Resvg } from "@resvg/resvg-js";
 import { prisma } from "@/lib/db";
 import { getUserById } from "@/lib/users";
+import { NOTO_SANS_TTF, CHART_FONT_FAMILY } from "@/lib/fonts/noto-sans";
 
 /* ------------------------------------------------------------------ *
  * Tunables — edit these directly, no config file needed.
@@ -33,7 +34,9 @@ const BG = "#0F172A";
 const GRID = "#334155";
 const AXIS_TEXT = "#94A3B8";
 const TITLE_TEXT = "#F1F5F9";
-const FONT = "DejaVu Sans, Helvetica, Arial, sans-serif";
+// Must match the embedded font — system fonts are deliberately not consulted,
+// so any other family name would render as tofu boxes in production.
+const FONT = CHART_FONT_FAMILY;
 
 function esc(s: string): string {
   return s.replace(/[<>&"']/g, (c) =>
@@ -187,7 +190,8 @@ export async function generateBalanceGraphPng(
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">`,
     `<rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>`,
-    `<text x="${PAD_L}" y="26" font-family="${FONT}" font-size="15" font-weight="bold" fill="${TITLE_TEXT}">Balance history — last ${GRAPH_LOOKBACK_MONTHS} months</text>`
+    // ASCII only — the embedded font is a latin subset (no em dash)
+    `<text x="${PAD_L}" y="26" font-family="${FONT}" font-size="15" font-weight="bold" fill="${TITLE_TEXT}">Balance history - last ${GRAPH_LOOKBACK_MONTHS} months</text>`
   );
 
   // Legend (name + current balance), laid out left→right under the title
@@ -232,5 +236,20 @@ export async function generateBalanceGraphPng(
 
   parts.push("</svg>");
 
-  return sharp(Buffer.from(parts.join(""))).png().toBuffer();
+  // Render with ONLY the embedded font. loadSystemFonts:false is the whole
+  // point — serverless hosts ship no fonts, and letting it fall back silently
+  // is what produced tofu boxes before.
+  //
+  // `fontBuffers` is supported by the native binding but missing from the
+  // v2.6 type definitions (which only declare fontFiles/fontDirs), hence the
+  // cast. Verified honored at runtime — passing no font renders no glyphs.
+  const options = {
+    font: {
+      fontBuffers: [NOTO_SANS_TTF],
+      loadSystemFonts: false,
+      defaultFontFamily: CHART_FONT_FAMILY,
+    },
+  } as unknown as ConstructorParameters<typeof Resvg>[1];
+
+  return Buffer.from(new Resvg(parts.join(""), options).render().asPng());
 }
