@@ -671,7 +671,7 @@ export default function TransactionList({
                       className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 disabled:text-muted disabled:bg-background disabled:opacity-50"
                     >Split evenly ({editIncludedCount})</button>
                     {editIsNegative && editIncludedCount > 0 && (
-                      <span className="text-[11px] text-amber-400 mr-2">Negative \u2014 rebate/refund</span>
+                      <span className="text-[11px] text-amber-400 mr-2">Negative \— rebate/refund</span>
                     )}
                     {editTotalCents !== 0 && editIncludedCount > 0 && (
                       <span className={`text-xs font-mono ${editSharesMatch ? "text-positive" : "text-negative"}`}>

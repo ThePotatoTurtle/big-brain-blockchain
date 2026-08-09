@@ -1033,7 +1033,22 @@ function ReceiptItemRow({
   symbol?: string;
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Open upward when there isn't room below. The menu is absolutely positioned,
+  // so it adds no document height — on the last item it would render past the
+  // end of the page with nothing to scroll to (iOS just rubber-bands back).
+  const [dropUp, setDropUp] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const toggleDropdown = () => {
+    if (!dropdownOpen && dropdownRef.current) {
+      const rect = dropdownRef.current.getBoundingClientRect();
+      // The mobile bottom nav is fixed and overlays the last ~80px
+      const spaceBelow = window.innerHeight - rect.bottom - 80;
+      const needed = Math.min(members.length * 30 + 44, 280);
+      setDropUp(spaceBelow < needed && rect.top > spaceBelow);
+    }
+    setDropdownOpen((v) => !v);
+  };
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -1121,7 +1136,7 @@ function ReceiptItemRow({
       {/* Row 3: person multi-select */}
       <div ref={dropdownRef} className="relative">
         <button
-          onClick={() => setDropdownOpen(!dropdownOpen)}
+          onClick={toggleDropdown}
           className={`w-full text-left bg-card border rounded-md px-2 py-1.5 text-xs transition-colors ${
             item.assignedUserIds.length === 0
               ? "border-amber-500/50 text-muted"
@@ -1131,7 +1146,11 @@ function ReceiptItemRow({
           <span className="truncate block">{label}</span>
         </button>
         {dropdownOpen && (
-          <div className="absolute z-20 left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1">
+          <div
+            className={`absolute z-20 left-0 right-0 bg-card border border-border rounded-lg shadow-lg py-1 max-h-[45vh] overflow-y-auto overscroll-contain ${
+              dropUp ? "bottom-full mb-1" : "top-full mt-1"
+            }`}
+          >
             <div className="flex gap-2 px-2 py-1 border-b border-border">
               <button
                 onClick={onSetAll}

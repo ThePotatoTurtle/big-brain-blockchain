@@ -757,7 +757,7 @@ export default function TransactionForm() {
               </div>
               <div className="flex items-center gap-2">
                 {isNegative && includedCount > 0 && (
-                  <span className="text-[11px] text-amber-400">Negative \u2014 rebate/refund</span>
+                  <span className="text-[11px] text-amber-400">Negative \— rebate/refund</span>
                 )}
                 {totalCents !== 0 && includedCount > 0 && (
                   <span
