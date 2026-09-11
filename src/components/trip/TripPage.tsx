@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getUserById } from "@/lib/users";
 import { formatDate } from "@/lib/utils";
 import { formatMoney, type TripConfig } from "@/lib/trips";
@@ -20,12 +20,16 @@ interface TripSummary {
   transferredAt: string | null;
 }
 
+/** Entries fetched per page. Also the initial count shown. */
+const PAGE_SIZE = 40;
+
 export default function TripPage({ trip }: { trip: TripConfig }) {
   const [summary, setSummary] = useState<TripSummary | null>(null);
   const [transactions, setTransactions] = useState<TransactionWithDetails[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Transfer modal
   const [transferOpen, setTransferOpen] = useState(false);
@@ -53,7 +57,9 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
     try {
       const [sumRes, txRes] = [
         await fetch(`/api/trips/${trip.slug}/summary`, { cache: "no-store" }),
-        await fetch(`/api/transactions?trip=${trip.slug}&page=1&limit=20`, { cache: "no-store" }),
+        await fetch(`/api/transactions?trip=${trip.slug}&page=1&limit=${PAGE_SIZE}`, {
+          cache: "no-store",
+        }),
       ];
       if (sumRes.ok) setSummary(await sumRes.json());
       if (txRes.ok) {
@@ -71,20 +77,41 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
     refresh();
   }, [refresh]);
 
-  const loadMore = async () => {
-    if (loadingMore) return;
+  const hasMore = transactions.length < total;
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const nextPage = page + 1;
-      const res = await fetch(`/api/transactions?trip=${trip.slug}&page=${nextPage}&limit=20`);
+      const res = await fetch(
+        `/api/transactions?trip=${trip.slug}&page=${nextPage}&limit=${PAGE_SIZE}`
+      );
       const data = await res.json();
       setTransactions((prev) => [...prev, ...data.transactions]);
       setTotal(data.total);
       setPage(nextPage);
+    } catch (err) {
+      console.error("Failed to load more:", err);
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [page, loadingMore, hasMore, trip.slug]);
+
+  // Infinite scroll: pull the next page once the sentinel nears the viewport.
+  // rootMargin starts the fetch slightly early so it feels seamless.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: "300px", threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMore, hasMore]);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -490,15 +517,19 @@ export default function TripPage({ trip }: { trip: TripConfig }) {
             />
           );
         })}
-        {transactions.length < total && (
-          <div className="py-2 text-center">
-            <button
-              onClick={loadMore}
-              disabled={loadingMore}
-              className="text-sm text-accent hover:underline disabled:opacity-50"
-            >
-              {loadingMore ? "Loading..." : "Load more"}
-            </button>
+        {hasMore && (
+          <div ref={sentinelRef} className="py-3 text-center">
+            {loadingMore ? (
+              <span className="text-sm text-muted">Loading more...</span>
+            ) : (
+              // Fallback for when IntersectionObserver can't fire (or is unsupported)
+              <button
+                onClick={loadMore}
+                className="text-sm text-accent hover:underline"
+              >
+                Load more
+              </button>
+            )}
           </div>
         )}
       </div>
