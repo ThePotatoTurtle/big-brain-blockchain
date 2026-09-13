@@ -3,6 +3,7 @@ import { parse as parseFont } from "opentype.js";
 import { prisma } from "@/lib/db";
 import { getUserById } from "@/lib/users";
 import { NOTO_SANS_TTF } from "@/lib/fonts/noto-sans";
+import { symlogAxis, symlogT } from "@/lib/chart-scale";
 
 /**
  * Text is converted to vector PATHS rather than emitted as <text>.
@@ -97,10 +98,18 @@ function textWidth(text: string, size: number): number {
 export const LARGE_TX_THRESHOLD_CENTS = 10_000;
 /** How far back the graph looks from the newest transaction in the DB. */
 export const GRAPH_LOOKBACK_MONTHS = 6;
-/** Y-axis label increment. $50. */
-export const GRAPH_Y_STEP_CENTS = 5_000;
-/** Cap on Y labels — the step grows to a multiple of the above if exceeded. */
-export const GRAPH_MAX_Y_LABELS = 10;
+/**
+ * Y axis is symlog (see @/lib/chart-scale), matching the in-app charts.
+ * This is the linear-threshold: below ±$50 the axis behaves linearly, above it
+ * compresses logarithmically so one large balance can't flatten everyone else.
+ */
+export const GRAPH_SYMLOG_CONSTANT_CENTS = 5_000;
+/**
+ * Cap on Y labels — the tick ladder thins itself if it would exceed this.
+ * 14 keeps the full 1/2.5/5 ladder on a wide spread; dropping to 10 thins it
+ * to 1/5 and leaves the tails with no gridline for long stretches.
+ */
+export const GRAPH_MAX_Y_LABELS = 14;
 /** Cap on X-axis date labels, so a long window doesn't get dense. */
 export const GRAPH_MAX_X_TICKS = 6;
 
@@ -287,7 +296,7 @@ export async function generateBalanceGraphPng(
     };
   });
 
-  // ---- Y domain on GRAPH_Y_STEP_CENTS multiples, always including zero ----
+  // ---- Y domain: symlog, always including zero ----
   let lo = 0;
   let hi = 0;
   for (const s of series) {
@@ -296,24 +305,25 @@ export async function generateBalanceGraphPng(
       if (v > hi) hi = v;
     }
   }
-  let step = GRAPH_Y_STEP_CENTS;
-  const spanForStep = Math.max(hi - lo, 1);
-  // Keep labels readable by growing to a multiple of the base step
-  const mult = Math.max(1, Math.ceil(spanForStep / (step * (GRAPH_MAX_Y_LABELS - 1))));
-  step *= mult;
-  let yLo = Math.floor(lo / step) * step;
-  let yHi = Math.ceil(hi / step) * step;
-  if (yLo === yHi) {
-    yLo -= step;
-    yHi += step;
-  }
-  const yTicks: number[] = [];
-  for (let v = yLo; v <= yHi; v += step) yTicks.push(v);
+  const { domain: yDomain, ticks: yTicks } = symlogAxis(
+    lo,
+    hi,
+    GRAPH_SYMLOG_CONSTANT_CENTS,
+    GRAPH_MAX_Y_LABELS
+  );
+  const [yLo, yHi] = yDomain;
 
   // ---- scales ----
   const tSpan = endTs - startTs || 1;
   const x = (ts: number) => PAD_L + ((ts - startTs) / tSpan) * PLOT_W;
-  const y = (v: number) => PAD_T + ((yHi - v) / (yHi - yLo)) * PLOT_H;
+  // Positions come from the symlog transform, so the PNG and the in-app chart
+  // place the same balance at the same relative height.
+  const tLo = symlogT(yLo, GRAPH_SYMLOG_CONSTANT_CENTS);
+  const tHi = symlogT(yHi, GRAPH_SYMLOG_CONSTANT_CENTS);
+  const tSpanY = tHi - tLo || 1;
+  const y = (v: number) =>
+    PAD_T +
+    ((tHi - symlogT(v, GRAPH_SYMLOG_CONSTANT_CENTS)) / tSpanY) * PLOT_H;
 
   // ---- X ticks: evenly spaced in TIME so spacing reflects real duration ----
   const xTickCount = Math.min(GRAPH_MAX_X_TICKS, Math.max(2, timestamps.length));

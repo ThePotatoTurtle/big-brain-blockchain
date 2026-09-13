@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -13,6 +13,14 @@ import {
 } from "recharts";
 import { USERS } from "@/lib/users";
 import type { BalanceHistoryPoint } from "@/lib/types";
+import ScaleToggle from "./ScaleToggle";
+import {
+  buildAxis,
+  makeSymlogScale,
+  formatCentsTick,
+  DEFAULT_SYMLOG_CONSTANT,
+  type AxisScale,
+} from "@/lib/chart-scale";
 
 function formatCents(cents: number): string {
   const abs = Math.abs(cents);
@@ -72,6 +80,13 @@ export default function BalanceChart({
   data: BalanceHistoryPoint[];
 }) {
   const [hiddenUsers, setHiddenUsers] = useState<Set<string>>(new Set());
+  // Main ledger spans a wide range (one payer far from zero, several people
+  // clustered near it), so it opens on the symlog scale. Not persisted.
+  const [scaleMode, setScaleMode] = useState<AxisScale>("log");
+  const symlogScale = useMemo(
+    () => makeSymlogScale(DEFAULT_SYMLOG_CONSTANT),
+    []
+  );
 
   const toggleUser = (name: string) => {
     setHiddenUsers((prev) => {
@@ -109,12 +124,12 @@ export default function BalanceChart({
       }
     }
   }
-  // Round domain to nearest $100 (10000 cents)
-  const step = 10000;
-  const yDomain: [number, number] = [
-    Math.floor(yMin / step) * step,
-    Math.ceil(yMax / step) * step,
-  ];
+  const { domain: yDomain, ticks: yTicks } = buildAxis(
+    scaleMode,
+    yMin,
+    yMax,
+    DEFAULT_SYMLOG_CONSTANT
+  );
 
   // Add timestamps for proportional X-axis scaling
   const chartData = data.map((point) => ({
@@ -155,6 +170,7 @@ export default function BalanceChart({
             </button>
           );
         })}
+        <ScaleToggle value={scaleMode} onChange={setScaleMode} />
       </div>
 
       {/* Chart */}
@@ -179,16 +195,11 @@ export default function BalanceChart({
           <YAxis
             stroke="#94A3B8"
             fontSize={11}
+            type="number"
             domain={yDomain}
-            ticks={(() => {
-              const t = Array.from(
-                { length: (yDomain[1] - yDomain[0]) / step + 1 },
-                (_, i) => yDomain[0] + i * step
-              );
-              if (!t.includes(0)) t.push(0);
-              return t.sort((a, b) => a - b);
-            })()}
-            tickFormatter={(val) => formatCents(val)}
+            ticks={yTicks}
+            scale={scaleMode === "log" ? symlogScale : "linear"}
+            tickFormatter={(val) => formatCentsTick(val)}
           />
           <Tooltip
             content={<CustomTooltip />}

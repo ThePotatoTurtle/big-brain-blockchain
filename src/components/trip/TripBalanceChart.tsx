@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -13,6 +13,8 @@ import {
 } from "recharts";
 import { getUserById } from "@/lib/users";
 import { formatMoney, type TripCurrency } from "@/lib/trips";
+import ScaleToggle from "../ScaleToggle";
+import { buildAxis, makeSymlogScale, type AxisScale } from "@/lib/chart-scale";
 
 export interface TripHistoryPoint {
   date: string;
@@ -70,6 +72,22 @@ export default function TripBalanceChart({
   currency: TripCurrency;
 }) {
   const [hidden, setHidden] = useState<Set<number>>(new Set());
+  // A trip's members all spend at a similar scale, so linear reads fine here
+  // and stays the default; the toggle is for the odd lopsided trip. Not persisted.
+  const [scaleMode, setScaleMode] = useState<AxisScale>("linear");
+  // Half a gridline step as the linear-near-zero band: $50 for CAD, ¥5,000 for JPY.
+  const symlogConstant = Math.max(
+    1,
+    Math.round(
+      (currency.axisStep && currency.axisStep > 0
+        ? currency.axisStep
+        : Math.pow(10, currency.decimals) * 100) / 2
+    )
+  );
+  const symlogScale = useMemo(
+    () => makeSymlogScale(symlogConstant),
+    [symlogConstant]
+  );
   const members = memberIds
     .map((id) => getUserById(id))
     .filter((u): u is NonNullable<typeof u> => !!u);
@@ -106,24 +124,12 @@ export default function TripBalanceChart({
       }
     }
   }
-  // Round the Y domain to the currency's tick step (like the main-ledger chart).
-  const step =
-    currency.axisStep && currency.axisStep > 0
-      ? currency.axisStep
-      : Math.pow(10, currency.decimals) * 100;
-  let yLo = Math.floor(yMin / step) * step;
-  let yHi = Math.ceil(yMax / step) * step;
-  if (yLo === yHi) {
-    yLo -= step;
-    yHi += step;
-  }
-  const yDomain: [number, number] = [yLo, yHi];
-  const yTicks = (() => {
-    const count = Math.round((yHi - yLo) / step) + 1;
-    const t = Array.from({ length: count }, (_, i) => yLo + i * step);
-    if (!t.includes(0)) t.push(0);
-    return t.sort((a, b) => a - b);
-  })();
+  const { domain: yDomain, ticks: yTicks } = buildAxis(
+    scaleMode,
+    yMin,
+    yMax,
+    symlogConstant
+  );
 
   const allShown = hidden.size === 0;
 
@@ -160,6 +166,7 @@ export default function TripBalanceChart({
             </button>
           );
         })}
+        <ScaleToggle value={scaleMode} onChange={setScaleMode} />
       </div>
 
       <ResponsiveContainer width="100%" height={260}>
@@ -179,8 +186,10 @@ export default function TripBalanceChart({
           <YAxis
             stroke="var(--muted)"
             fontSize={11}
+            type="number"
             domain={yDomain}
             ticks={yTicks}
+            scale={scaleMode === "log" ? symlogScale : "linear"}
             tickFormatter={(val) => `${val < 0 ? "-" : ""}${formatMoney(Math.abs(Math.round(val)), currency)}`}
           />
           <Tooltip
