@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { USERS } from "@/lib/users";
 import { todayString, dollarsToCents, splitEvenly, centsToDisplay } from "@/lib/utils";
 import type { CreateTransactionRequest } from "@/lib/types";
+import AmountChips from "./AmountChips";
 
 /** Compress large images (esp. PNG clipboard pastes) to JPEG ≤ 4MB */
 function compressImage(file: File, maxBytes = 4 * 1024 * 1024): Promise<File> {
@@ -170,12 +171,16 @@ export default function TransactionForm() {
     if (payerIdx > 0) {
       [splitAmounts[0], splitAmounts[payerIdx]] = [splitAmounts[payerIdx], splitAmounts[0]];
     }
-    let idx = 0;
+    // Pair each amount with its owner BEFORE updating state. Advancing a
+    // counter inside the updater makes it impure, and React invokes updaters
+    // twice under StrictMode — the second pass ran off the end of the array
+    // and wrote "NaN" into every share.
+    const byUser = new Map(included.map((s, i) => [s.userId, splitAmounts[i]]));
 
     setShares((prev) =>
       prev.map((s) => {
-        if (!s.included) return s;
-        const cents = splitAmounts[idx++];
+        const cents = s.included ? byUser.get(s.userId) : undefined;
+        if (cents === undefined) return s;
         return { ...s, amount: (cents / 100).toFixed(2) };
       })
     );
@@ -209,11 +214,12 @@ export default function TransactionForm() {
       remainderCents--;
     }
 
-    let idx = 0;
+    // Keyed by user, not by position — see handleSplitEvenly above.
+    const byUser = new Map(included.map((s, i) => [s.userId, rawShares[i]]));
     setShares((prev) =>
       prev.map((s) => {
-        if (!s.included) return s;
-        const cents = rawShares[idx++];
+        const cents = s.included ? byUser.get(s.userId) : undefined;
+        if (cents === undefined) return s;
         return { ...s, amount: (cents / 100).toFixed(2) };
       })
     );
@@ -508,8 +514,9 @@ export default function TransactionForm() {
                     value={totalAmount}
                     onChange={(e) => setTotalAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                    className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent"
                   />
+                  <AmountChips value={totalAmount} onChange={setTotalAmount} />
                 </div>
               </div>
             </div>
@@ -530,8 +537,9 @@ export default function TransactionForm() {
                     value={totalAmount}
                     onChange={(e) => setTotalAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                    className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent"
                   />
+                  <AmountChips value={totalAmount} onChange={setTotalAmount} />
                 </div>
               </div>
 
@@ -757,7 +765,7 @@ export default function TransactionForm() {
               </div>
               <div className="flex items-center gap-2">
                 {isNegative && includedCount > 0 && (
-                  <span className="text-[11px] text-amber-400">Negative \— rebate/refund</span>
+                  <span className="text-[11px] text-amber-400">Negative — rebate/refund</span>
                 )}
                 {totalCents !== 0 && includedCount > 0 && (
                   <span

@@ -7,6 +7,7 @@ import { todayString, dollarsToCents, centsToDisplay } from "@/lib/utils";
 import { computeProRataShares, formatReceiptNotes } from "@/lib/receipt";
 import { toMinorUnits, formatMoney, type TripConfig, type TripCurrency } from "@/lib/trips";
 import type { CreateTransactionRequest } from "@/lib/types";
+import AmountChips from "./AmountChips";
 
 const CAD_DEFAULT: TripCurrency = { code: "CAD", symbol: "$", decimals: 2 };
 
@@ -747,8 +748,9 @@ export default function ReceiptForm({
                     value={totalAmount}
                     onChange={(e) => setTotalAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                    className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent"
                   />
+                  <AmountChips value={totalAmount} onChange={setTotalAmount} />
                 </div>
               </div>
             </div>
@@ -770,8 +772,9 @@ export default function ReceiptForm({
                     value={totalAmount}
                     onChange={(e) => setTotalAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                    className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent"
                   />
+                  <AmountChips value={totalAmount} onChange={setTotalAmount} />
                 </div>
               </div>
               <div>

@@ -9,6 +9,7 @@ import {
   toMinorUnits,
   formatMoney,
 } from "@/lib/trips";
+import AmountChips from "../AmountChips";
 
 /** Compress large images (esp. PNG clipboard pastes) to JPEG ≤ 4MB */
 function compressImage(file: File, maxBytes = 4 * 1024 * 1024): Promise<File> {
@@ -187,11 +188,15 @@ export default function TripEntryForm({
     if (payerIdx > 0) {
       [splitAmounts[0], splitAmounts[payerIdx]] = [splitAmounts[payerIdx], splitAmounts[0]];
     }
-    let idx = 0;
+    // Pair each amount with its owner BEFORE updating state. Advancing a
+    // counter inside the updater makes it impure, and React invokes updaters
+    // twice under StrictMode — the second pass ran off the end of the array
+    // and wrote "NaN" into every share.
+    const byUser = new Map(included.map((s, i) => [s.userId, splitAmounts[i]]));
     setShares((prev) =>
       prev.map((s) => {
-        if (!s.included) return s;
-        const minor = splitAmounts[idx++];
+        const minor = s.included ? byUser.get(s.userId) : undefined;
+        if (minor === undefined) return s;
         return {
           ...s,
           amount: (minor / Math.pow(10, currency.decimals)).toFixed(currency.decimals),
@@ -221,11 +226,12 @@ export default function TripEntryForm({
       raw[i]++;
       remainder--;
     }
-    let idx = 0;
+    // Keyed by user, not by position — see handleSplitEvenly above.
+    const byUser = new Map(included.map((s, i) => [s.userId, raw[i]]));
     setShares((prev) =>
       prev.map((s) => {
-        if (!s.included) return s;
-        const minor = raw[idx++];
+        const minor = s.included ? byUser.get(s.userId) : undefined;
+        if (minor === undefined) return s;
         return {
           ...s,
           amount: (minor / Math.pow(10, currency.decimals)).toFixed(currency.decimals),
@@ -589,8 +595,9 @@ export default function TripEntryForm({
                     value={totalAmount}
                     onChange={(e) => setTotalAmount(e.target.value)}
                     placeholder={amountPlaceholder}
-                    className={`${inputCls} pl-7`}
+                    className={`${inputCls} pl-7 pr-16`}
                   />
+                  <AmountChips value={totalAmount} onChange={setTotalAmount} />
                 </div>
               </div>
             </div>
@@ -610,8 +617,9 @@ export default function TripEntryForm({
                     value={totalAmount}
                     onChange={(e) => setTotalAmount(e.target.value)}
                     placeholder={amountPlaceholder}
-                    className={`${inputCls} pl-7`}
+                    className={`${inputCls} pl-7 pr-16`}
                   />
+                  <AmountChips value={totalAmount} onChange={setTotalAmount} />
                 </div>
               </div>
               <div>

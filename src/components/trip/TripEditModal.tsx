@@ -4,6 +4,7 @@ import { useState } from "react";
 import { USERS } from "@/lib/users";
 import { toMinorUnits, formatMoney, type TripConfig, type TripCurrency } from "@/lib/trips";
 import type { TransactionWithDetails } from "@/lib/types";
+import AmountChips from "../AmountChips";
 
 let payerIdCounter = 0;
 
@@ -128,9 +129,16 @@ export default function TripEditModal({
     if (payerIdx > 0) {
       [amounts[0], amounts[payerIdx]] = [amounts[payerIdx], amounts[0]];
     }
-    let idx = 0;
+    // Pair each amount with its owner BEFORE updating state. Advancing a
+    // counter inside the updater makes it impure, and React invokes updaters
+    // twice under StrictMode — the second pass ran off the end of the array
+    // and wrote "NaN" into every share.
+    const byUser = new Map(included.map((s, i) => [s.userId, amounts[i]]));
     setShares((prev) =>
-      prev.map((s) => (s.included ? { ...s, amount: minorToInput(amounts[idx++]) } : s))
+      prev.map((s) => {
+        const minor = s.included ? byUser.get(s.userId) : undefined;
+        return minor === undefined ? s : { ...s, amount: minorToInput(minor) };
+      })
     );
   };
 
@@ -309,7 +317,8 @@ export default function TripEditModal({
                       {currency.symbol}
                     </span>
                     <input type="text" inputMode="decimal" value={totalAmount}
-                      onChange={(e) => setTotalAmount(e.target.value)} className={`${inputCls} pl-7`} />
+                      onChange={(e) => setTotalAmount(e.target.value)} className={`${inputCls} pl-7 pr-16`} />
+                    <AmountChips value={totalAmount} onChange={setTotalAmount} />
                   </div>
                 </div>
               </div>
@@ -322,7 +331,8 @@ export default function TripEditModal({
                       {currency.symbol}
                     </span>
                     <input type="text" inputMode="decimal" value={totalAmount}
-                      onChange={(e) => setTotalAmount(e.target.value)} className={`${inputCls} pl-7`} />
+                      onChange={(e) => setTotalAmount(e.target.value)} className={`${inputCls} pl-7 pr-16`} />
+                    <AmountChips value={totalAmount} onChange={setTotalAmount} />
                   </div>
                 </div>
                 {payers.map((p) => {

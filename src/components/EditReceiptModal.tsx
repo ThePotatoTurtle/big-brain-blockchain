@@ -7,6 +7,7 @@ import { computeProRataShares, formatReceiptNotes, parseReceiptNotes } from "@/l
 import { ReceiptItemRow } from "@/components/ReceiptForm";
 import { toMinorUnits, formatMoney, type TripConfig, type TripCurrency } from "@/lib/trips";
 import type { TransactionWithDetails } from "@/lib/types";
+import AmountChips from "./AmountChips";
 
 const CAD_DEFAULT: TripCurrency = { code: "CAD", symbol: "$", decimals: 2 };
 
@@ -284,7 +285,8 @@ export default function EditReceiptModal({
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">{currencyDef.symbol}</span>
                 <input type="text" inputMode="decimal" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent" />
+                  className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent" />
+                <AmountChips value={totalAmount} onChange={setTotalAmount} />
               </div>
             </div>
           </div>
@@ -295,7 +297,8 @@ export default function EditReceiptModal({
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">{currencyDef.symbol}</span>
                 <input type="text" inputMode="decimal" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)}
-                  className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent" />
+                  className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent" />
+                <AmountChips value={totalAmount} onChange={setTotalAmount} />
               </div>
             </div>
             {payers.map((p) => {

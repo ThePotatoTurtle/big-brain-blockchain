@@ -7,6 +7,7 @@ import EditReceiptModal from "./EditReceiptModal";
 import { centsToDisplay, dollarsToCents, splitEvenly } from "@/lib/utils";
 import { USERS } from "@/lib/users";
 import { isReceiptNotes } from "@/lib/receipt";
+import AmountChips from "./AmountChips";
 
 interface EditFormState {
   type: "expense" | "settlement";
@@ -349,12 +350,17 @@ export default function TransactionList({
     if (payerIdx > 0) {
       [amounts[0], amounts[payerIdx]] = [amounts[payerIdx], amounts[0]];
     }
-    let idx = 0;
+    // Keyed by user rather than by a counter advanced during the map. This
+    // call passes an object (not an updater), so it wasn't hit by StrictMode's
+    // double-invocation like the other split handlers — keeping the shape
+    // consistent so it stays correct if it's ever converted to updater form.
+    const byUser = new Map(included.map((s, i) => [s.userId, amounts[i]]));
     setEditForm({
       ...ef,
       shares: ef.shares.map((s) => {
-        if (!s.included) return s;
-        return { ...s, amount: (amounts[idx++] / 100).toFixed(2) };
+        const cents = s.included ? byUser.get(s.userId) : undefined;
+        if (cents === undefined) return s;
+        return { ...s, amount: (cents / 100).toFixed(2) };
       }),
     });
   };
@@ -529,7 +535,11 @@ export default function TransactionList({
                           inputMode="decimal"
                           value={ef.totalAmount}
                           onChange={(e) => setEditForm({ ...ef, totalAmount: e.target.value })}
-                          className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                          className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent"
+                        />
+                        <AmountChips
+                          value={ef.totalAmount}
+                          onChange={(v) => setEditForm({ ...ef, totalAmount: v })}
                         />
                       </div>
                     </div>
@@ -547,7 +557,11 @@ export default function TransactionList({
                           inputMode="decimal"
                           value={ef.totalAmount}
                           onChange={(e) => setEditForm({ ...ef, totalAmount: e.target.value })}
-                          className="w-full bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-accent"
+                          className="w-full bg-background border border-border rounded-lg pl-7 pr-16 py-2 text-sm focus:outline-none focus:border-accent"
+                        />
+                        <AmountChips
+                          value={ef.totalAmount}
+                          onChange={(v) => setEditForm({ ...ef, totalAmount: v })}
                         />
                       </div>
                     </div>
@@ -671,7 +685,7 @@ export default function TransactionList({
                       className="px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 rounded-md hover:bg-accent/20 disabled:text-muted disabled:bg-background disabled:opacity-50"
                     >Split evenly ({editIncludedCount})</button>
                     {editIsNegative && editIncludedCount > 0 && (
-                      <span className="text-[11px] text-amber-400 mr-2">Negative \— rebate/refund</span>
+                      <span className="text-[11px] text-amber-400 mr-2">Negative — rebate/refund</span>
                     )}
                     {editTotalCents !== 0 && editIncludedCount > 0 && (
                       <span className={`text-xs font-mono ${editSharesMatch ? "text-positive" : "text-negative"}`}>
