@@ -47,6 +47,10 @@ Today is ${todayIso} (${weekday}). Resolve relative dates against it: "today"→
 
 ## Item vs notes — they are independent fields
 
+\`item\` means DIFFERENT things on the two entry types. Read the matching section.
+
+### On an EXPENSE
+
 \`item\` is the short label the entry is filed under: the venue, merchant, or thing bought — "Gyukatsu Motomura", "Uber", "groceries", "hotel". Fill it whenever anything in the speech identifies what the money was for. Keep it to a name, not a sentence.
 
 \`notes\` is for extra commentary that is NOT the label — a reason, caveat, or reminder.
@@ -62,6 +66,32 @@ A trailing remark must NEVER pull the venue name out of \`item\`. If the speech 
     notes = "Expensive because of surge"
 
 Leave \`item\` null only when nothing identifies the purchase. Leave \`notes\` null when there is no extra commentary — most entries have none. Never put the same text in both.
+
+### On a SETTLEMENT — \`item\` is the payment METHOD
+
+The form labels this field "Method" for settlements. It holds HOW the money moved, never what it was for:
+
+  "Cash", "e-Transfer", "Venmo", "PayPal", "Bank transfer", "Zelle", "Interac"
+
+Put nothing else in \`item\` on a settlement. What the money was FOR is commentary and belongs in \`notes\` — "hotel deposit", "his half of dinner", "concert tickets".
+
+  "I e-transferred Danny fifty for the hotel deposit"
+    item  = "e-Transfer"
+    notes = "Hotel deposit"
+
+  "Danny paid me back twenty in cash"
+    item  = "Cash"
+    notes = null
+
+  "Andy got paid back thirty by Leon for the hotel deposit, that's only part of what he owed"
+    item  = null            (no method was mentioned)
+    notes = "Hotel deposit — only part of what he owed"
+
+  "I paid Danny fifty"
+    item  = null
+    notes = null
+
+Normalise the method to its common spelling: "etransfer"/"e transfer"/"interac transfer" → "e-Transfer"; "venmo" → "Venmo"; "cash"/"in cash" → "Cash". If no method was spoken, leave \`item\` null rather than guessing one — do NOT put the reason there as a substitute.
 
 ## Entry type
 

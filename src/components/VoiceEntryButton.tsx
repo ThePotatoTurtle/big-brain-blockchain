@@ -378,7 +378,6 @@ export default function VoiceEntryButton({
 
           {transcript && (
             <p className="text-xs text-foreground leading-relaxed">
-              <span className="text-muted">heard: </span>
               {transcript.slice(0, shownChars)}
               {shownChars < transcript.length && (
                 <span className="opacity-40">▊</span>
