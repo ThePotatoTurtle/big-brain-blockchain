@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { USERS } from "@/lib/users";
 import { todayString, dollarsToCents, splitEvenly, centsToDisplay } from "@/lib/utils";
 import type { CreateTransactionRequest } from "@/lib/types";
 import AmountChips from "./AmountChips";
+import VoiceEntryButton from "./VoiceEntryButton";
+import type { VoiceParsedEntry } from "@/lib/voice/schema";
 
 /** Compress large images (esp. PNG clipboard pastes) to JPEG ≤ 4MB */
 function compressImage(file: File, maxBytes = 4 * 1024 * 1024): Promise<File> {
@@ -115,6 +117,9 @@ export default function TransactionForm() {
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
 
+  // Things the voice parser wants the user to double-check
+  const [voiceNotes, setVoiceNotes] = useState<string[]>([]);
+
   // Paste images from clipboard
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -154,6 +159,125 @@ export default function TransactionForm() {
   const setPretaxAmount = (userId: number, amount: string) => {
     setPretaxAmounts((prev) => ({ ...prev, [userId]: amount }));
   };
+
+  /**
+   * Fill the form from a dictated entry. Nothing is submitted — unheard fields
+   * stay blank on purpose so the user completes and reviews them.
+   *
+   * By the time this runs any "I"/"we" placeholder has already been resolved by
+   * VoiceEntryButton, so every userId here is a real person.
+   */
+  const applyVoiceEntry = useCallback(
+    (p: VoiceParsedEntry) => {
+      const notes: string[] = [...p.warnings];
+      if (p.multipleEntriesDetected) {
+        notes.unshift("Heard more than one entry — only the first was filled in.");
+      }
+      setVoiceNotes(notes);
+      setError("");
+      setSuccess("");
+
+      setType(p.entryType);
+      setDate(p.date || todayString());
+      setItem(p.item ?? "");
+      setNotes(p.notes ?? "");
+
+      if (p.entryType === "settlement") {
+        setFromUserId(p.settlementFrom ?? 0);
+        setToUserId(p.settlementTo ?? 0);
+        setSettlementAmount(
+          p.settlementAmount === null ? "" : p.settlementAmount.toFixed(2)
+        );
+        return;
+      }
+
+      // --- expense ---
+      const total = p.totalAmount;
+      setTotalAmount(total === null ? "" : total.toFixed(2));
+
+      setPayers(
+        p.payers.length > 0
+          ? p.payers.map((x) => ({
+              id: `payer-${payerIdCounter++}`,
+              userId: x.userId,
+              // Only a multi-payer split needs per-payer amounts.
+              amount:
+                p.payers.length > 1 && x.amount !== null
+                  ? x.amount.toFixed(2)
+                  : "",
+            }))
+          : [{ id: `payer-${payerIdCounter++}`, userId: 0, amount: "" }]
+      );
+
+      const restaurant = p.mode === "restaurant" && p.pretaxAmounts.length > 0;
+      setRestaurantMode(restaurant);
+      setPretaxAmounts(
+        restaurant
+          ? Object.fromEntries(
+              p.pretaxAmounts
+                .filter((x) => x.amount !== null)
+                .map((x) => [x.userId, (x.amount as number).toFixed(2)])
+            )
+          : {}
+      );
+
+      // Participants: restaurant mode derives them from the pre-tax rows.
+      const participants = restaurant
+        ? p.pretaxAmounts.map((x) => x.userId)
+        : p.shares.map((x) => x.userId);
+      const included = new Set(participants);
+
+      // An even split is computed here rather than left for the user to tap,
+      // matching handleSplitEvenly: magnitude first, extra cent to the payer.
+      let evenByUser: Map<number, number> | null = null;
+      const totalCents = total === null ? 0 : Math.round(total * 100);
+      if (
+        !restaurant &&
+        p.splitMode === "even" &&
+        totalCents !== 0 &&
+        participants.length > 0
+      ) {
+        const amounts = splitEvenly(Math.abs(totalCents), participants.length).map(
+          (v) => (totalCents < 0 ? -v : v)
+        );
+        const payerId = p.payers[0]?.userId ?? 0;
+        const payerIdx = participants.indexOf(payerId);
+        if (payerIdx > 0) {
+          [amounts[0], amounts[payerIdx]] = [amounts[payerIdx], amounts[0]];
+        }
+        evenByUser = new Map(participants.map((uid, i) => [uid, amounts[i]]));
+      }
+
+      const explicitByUser = new Map(
+        p.shares
+          .filter((x) => x.amount !== null)
+          .map((x) => [x.userId, x.amount as number])
+      );
+
+      setShares(
+        USERS.map((u) => {
+          if (!included.has(u.id)) return { userId: u.id, included: false, amount: "" };
+          if (restaurant) return { userId: u.id, included: true, amount: "" };
+          if (evenByUser?.has(u.id)) {
+            return {
+              userId: u.id,
+              included: true,
+              amount: ((evenByUser.get(u.id) as number) / 100).toFixed(2),
+            };
+          }
+          if (p.splitMode === "explicit" && explicitByUser.has(u.id)) {
+            return {
+              userId: u.id,
+              included: true,
+              amount: (explicitByUser.get(u.id) as number).toFixed(2),
+            };
+          }
+          return { userId: u.id, included: true, amount: "" };
+        })
+      );
+    },
+    []
+  );
 
   const handleSplitEvenly = () => {
     const totalCents = dollarsToCents(totalAmount);
@@ -400,9 +524,24 @@ export default function TransactionForm() {
           type === "settlement" ? "border-t-corner-settlement" : "border-t-corner-expense"
         }`}
       />
-      <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">
-        New Entry
-      </h2>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
+          New Entry
+        </h2>
+        <VoiceEntryButton onParsed={applyVoiceEntry} disabled={isSubmitting} />
+      </div>
+
+      {voiceNotes.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3">
+          <ul className="space-y-1">
+            {voiceNotes.map((w, i) => (
+              <li key={i} className="text-[11px] text-amber-400">
+                {w}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Type Toggle */}
       <div className="flex bg-background rounded-lg p-1 mb-4">

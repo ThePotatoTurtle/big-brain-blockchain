@@ -1,4 +1,68 @@
 import { NextRequest, NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
+
+/**
+ * POST /api/receipt-scan
+ *
+ * Extracts line items and totals from a receipt photo.
+ *
+ * Uses structured outputs rather than regex-scraping JSON out of the reply, so
+ * a malformed response is impossible by construction — the previous
+ * `/\{[\s\S]*\}/` match would happily capture a partial object.
+ */
+
+export const maxDuration = 60;
+
+const RECEIPT_JSON_SCHEMA = {
+  type: "object" as const,
+  additionalProperties: false,
+  required: [
+    "supplierName",
+    "date",
+    "totalAmount",
+    "tip",
+    "totalTax",
+    "totalNet",
+    "lineItems",
+  ],
+  properties: {
+    supplierName: { type: ["string", "null"], description: "Restaurant or store name" },
+    date: { type: ["string", "null"], description: "YYYY-MM-DD" },
+    totalAmount: { type: ["number", "null"], description: "Final total paid" },
+    tip: { type: ["number", "null"] },
+    totalTax: { type: ["number", "null"] },
+    totalNet: { type: ["number", "null"], description: "Subtotal before tax" },
+    lineItems: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["description", "quantity", "unitPrice", "totalAmount"],
+        properties: {
+          description: { type: "string" },
+          quantity: { type: "number" },
+          unitPrice: { type: ["number", "null"] },
+          totalAmount: { type: ["number", "null"] },
+        },
+      },
+    },
+  },
+};
+
+interface ParsedReceipt {
+  supplierName: string | null;
+  date: string | null;
+  totalAmount: number | null;
+  tip: number | null;
+  totalTax: number | null;
+  totalNet: number | null;
+  lineItems: {
+    description: string;
+    quantity: number;
+    unitPrice: number | null;
+    totalAmount: number | null;
+  }[];
+}
 
 export async function POST(request: NextRequest) {
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -22,117 +86,81 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const mimeType = file.type || "image/jpeg";
+  if (!mimeType.startsWith("image/")) {
+    return NextResponse.json({ error: "File must be an image" }, { status: 400 });
+  }
+
   try {
-    // Convert file to base64
-    const buffer = await file.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
+    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
-    // Determine media type
-    const mimeType = file.type || "image/jpeg";
-    if (!mimeType.startsWith("image/")) {
-      return NextResponse.json(
-        { error: "File must be an image" },
-        { status: 400 }
-      );
-    }
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
+    const message = await client.messages.create({
+      model: "claude-opus-5",
+      max_tokens: 8192,
+      thinking: { type: "adaptive" },
+      output_config: {
+        effort: "low",
+        format: { type: "json_schema", schema: RECEIPT_JSON_SCHEMA },
       },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 2048,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: mimeType,
-                  data: base64,
-                },
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/gif"
+                  | "image/webp",
+                data: base64,
               },
-              {
-                type: "text",
-                text: `Extract all data from this receipt image. Return ONLY valid JSON with this exact structure, no other text:
-{
-  "supplierName": "restaurant or store name" or null,
-  "date": "YYYY-MM-DD" or null,
-  "totalAmount": number or null (final total paid),
-  "tip": number or null,
-  "totalTax": number or null,
-  "totalNet": number or null (subtotal before tax),
-  "lineItems": [
-    {
-      "description": "item name",
-      "quantity": number (default 1),
-      "unitPrice": number or null (price per unit),
-      "totalAmount": number or null (line total)
-    }
-  ]
-}
-All prices should be plain numbers (e.g. 12.50 not "$12.50"). Extract every individual line item you can see on the receipt.`,
-              },
-            ],
-          },
-        ],
-      }),
+            },
+            {
+              type: "text",
+              text: `Extract all data from this receipt image.
+
+All prices are plain numbers in the receipt's currency (12.50, not "$12.50"). Extract every individual line item you can see. Use null for anything not shown on the receipt rather than estimating it — a missing value is better than an invented one.`,
+            },
+          ],
+        },
+      ],
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("Anthropic API error:", res.status, text);
-      return NextResponse.json(
-        { error: "Receipt scan failed" },
-        { status: 502 }
-      );
+    if (message.stop_reason === "refusal") {
+      return NextResponse.json({ error: "Could not read this receipt" }, { status: 422 });
     }
 
-    const data = await res.json();
-    const responseText = data.content?.[0]?.text ?? "";
-
-    // Extract JSON from response (handle markdown code blocks)
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("Could not parse Claude response:", responseText);
-      return NextResponse.json(
-        { error: "Could not parse receipt" },
-        { status: 422 }
-      );
+    const textBlock = message.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return NextResponse.json({ error: "Could not parse receipt" }, { status: 422 });
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(textBlock.text) as ParsedReceipt;
 
-    // Normalize to expected format
-    const result = {
+    return NextResponse.json({
       supplierName: parsed.supplierName ?? null,
       date: parsed.date ?? null,
       totalAmount: parsed.totalAmount ?? null,
       tip: parsed.tip ?? null,
       totalTax: parsed.totalTax ?? null,
       totalNet: parsed.totalNet ?? null,
-      lineItems: (parsed.lineItems ?? []).map(
-        (li: Record<string, unknown>) => ({
-          description: (li.description as string) ?? "Item",
-          quantity: (li.quantity as number) ?? 1,
-          unitPrice: (li.unitPrice as number) ?? null,
-          totalAmount: (li.totalAmount as number) ?? null,
-        })
-      ),
-    };
-
-    return NextResponse.json(result);
+      lineItems: (parsed.lineItems ?? []).map((li) => ({
+        description: li.description ?? "Item",
+        quantity: li.quantity ?? 1,
+        unitPrice: li.unitPrice ?? null,
+        totalAmount: li.totalAmount ?? null,
+      })),
+    });
   } catch (err) {
-    console.error("Receipt scan error:", err);
-    return NextResponse.json(
-      { error: "Receipt scan failed" },
-      { status: 500 }
-    );
+    if (err instanceof Anthropic.APIError) {
+      console.error("Receipt scan API error:", err.status, err.message);
+    } else {
+      console.error("Receipt scan error:", err);
+    }
+    return NextResponse.json({ error: "Receipt scan failed" }, { status: 502 });
   }
 }

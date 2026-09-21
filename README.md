@@ -1,5 +1,20 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Environment variables
+
+Set these in `.env` locally and under **Vercel → Project → Settings → Environment Variables** for deploys.
+
+| Variable | Used by | Notes |
+|---|---|---|
+| `DATABASE_URL` | Prisma | Neon pooled connection string |
+| `DIRECT_DATABASE_URL` | Prisma | Neon direct connection, for migrations |
+| `BLOB_READ_WRITE_TOKEN` | Receipt/attachment uploads | Vercel Blob |
+| `RESEND_API_KEY` | Email | |
+| `ANTHROPIC_API_KEY` | Receipt scanning, voice-entry parsing | Both call `claude-opus-5` |
+| `OPENROUTER_API_KEY` | Voice entry (speech-to-text) | Transcription via `microsoft/mai-transcribe-2` |
+
+Voice entry needs **both** `OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY` — transcription and parsing are separate hops. Neither key reaches the browser; both are read server-side in the API routes only. Recorded audio is held in memory for the length of the request and never written to Blob storage, the database, or logs.
+
 ## Getting Started
 
 First, run the development server:
