@@ -81,6 +81,7 @@ export default function VoiceEntryButton({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const meterStreamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -93,6 +94,8 @@ export default function VoiceEntryButton({
     tickRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    meterStreamRef.current?.getTracks().forEach((t) => t.stop());
+    meterStreamRef.current = null;
     audioCtxRef.current?.close().catch(() => {});
     audioCtxRef.current = null;
     recorderRef.current = null;
@@ -179,7 +182,9 @@ export default function VoiceEntryButton({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Input-level meter
+      // Input-level meter. It runs on a CLONED track, not the one being
+      // recorded: on iOS Safari, attaching a MediaStreamSource to the same
+      // track MediaRecorder is writing can corrupt the resulting MP4.
       const Ctx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext })
@@ -188,7 +193,11 @@ export default function VoiceEntryButton({
       audioCtxRef.current = ctx;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
-      ctx.createMediaStreamSource(stream).connect(analyser);
+      const meterTrack = stream.getAudioTracks()[0]?.clone();
+      if (meterTrack) {
+        meterStreamRef.current = new MediaStream([meterTrack]);
+        ctx.createMediaStreamSource(meterStreamRef.current).connect(analyser);
+      }
       const buf = new Uint8Array(analyser.frequencyBinCount);
       const meter = () => {
         analyser.getByteTimeDomainData(buf);

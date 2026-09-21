@@ -45,6 +45,64 @@ function audioFormat(mime: string): string | null {
 }
 
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+const STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
+const STT_MODEL = "microsoft/mai-transcribe-2";
+
+type SttResult =
+  | { ok: true; text: string; via: string }
+  | { ok: false; status: number; detail: string; via: string };
+
+/**
+ * Transcribe via multipart first, falling back to the JSON/base64 shape.
+ *
+ * Multipart is preferred: the provider receives the filename and content type
+ * (useful for container sniffing, which matters for the MP4/AAC that iOS Safari
+ * records) and there's no 33% base64 inflation on the upload.
+ */
+async function transcribe(
+  bytes: Buffer,
+  mime: string,
+  format: string,
+  filename: string,
+  key: string
+): Promise<SttResult> {
+  const auth = { Authorization: `Bearer ${key}` };
+
+  const fd = new FormData();
+  fd.append("model", STT_MODEL);
+  fd.append("language", "en");
+  fd.append("file", new Blob([new Uint8Array(bytes)], { type: mime }), filename);
+
+  let res = await fetch(STT_URL, { method: "POST", headers: auth, body: fd });
+  if (res.ok) {
+    const j = (await res.json()) as { text?: string };
+    return { ok: true, text: (j.text ?? "").trim(), via: "multipart" };
+  }
+  const firstStatus = res.status;
+  const firstDetail = (await res.text()).slice(0, 600);
+
+  res = await fetch(STT_URL, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: STT_MODEL,
+      input_audio: { data: bytes.toString("base64"), format },
+      language: "en",
+    }),
+  });
+  if (res.ok) {
+    const j = (await res.json()) as { text?: string };
+    return { ok: true, text: (j.text ?? "").trim(), via: "json(after multipart " + firstStatus + ")" };
+  }
+
+  return {
+    ok: false,
+    status: res.status,
+    // Both upstream messages — these are error strings, not audio content.
+    detail: `multipart ${firstStatus}: ${firstDetail} || json ${res.status}: ${(await res.text()).slice(0, 600)}`,
+    via: "both",
+  };
+}
 
 export async function POST(request: NextRequest) {
   const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
@@ -86,34 +144,32 @@ export async function POST(request: NextRequest) {
   // ---------- 1. Transcribe ----------
   let transcript: string;
   try {
-    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const sttRes = await fetch(
-      "https://openrouter.ai/api/v1/audio/transcriptions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "microsoft/mai-transcribe-2",
-          input_audio: { data: base64, format },
-          language: "en",
-        }),
-      }
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const result = await transcribe(
+      bytes,
+      file.type || "application/octet-stream",
+      format,
+      file.name || `audio.${format}`,
+      OPENROUTER_API_KEY
     );
 
-    if (!sttRes.ok) {
-      // Log status only — the body can echo back audio metadata.
-      console.error("OpenRouter transcription failed:", sttRes.status);
+    if (!result.ok) {
+      // Log the upstream message, the declared type and the size. Without this
+      // an iOS-only failure is undiagnosable from the Vercel logs; none of it
+      // is audio content.
+      console.error(
+        `OpenRouter transcription failed (${result.status}) ` +
+          `mime=${file.type || "?"} format=${format} bytes=${bytes.length}: ${result.detail}`
+      );
       return NextResponse.json(
         { error: "Could not transcribe the recording" },
         { status: 502 }
       );
     }
-
-    const sttData = (await sttRes.json()) as { text?: string };
-    transcript = (sttData.text ?? "").trim();
+    if (result.via !== "multipart") {
+      console.warn(`Transcription fell back to ${result.via}`);
+    }
+    transcript = result.text;
   } catch (err) {
     console.error("Transcription error:", err);
     return NextResponse.json(
