@@ -7,7 +7,7 @@ import { todayString, dollarsToCents, splitEvenly, centsToDisplay } from "@/lib/
 import type { CreateTransactionRequest } from "@/lib/types";
 import AmountChips from "./AmountChips";
 import VoiceEntryButton from "./VoiceEntryButton";
-import type { VoiceParsedEntry } from "@/lib/voice/schema";
+import { formItemValue, type VoiceParsedEntry } from "@/lib/voice/schema";
 
 /** Compress large images (esp. PNG clipboard pastes) to JPEG ≤ 4MB */
 function compressImage(file: File, maxBytes = 4 * 1024 * 1024): Promise<File> {
@@ -179,7 +179,7 @@ export default function TransactionForm() {
 
       setType(p.entryType);
       setDate(p.date || todayString());
-      setItem(p.item ?? "");
+      setItem(formItemValue(p));
       setNotes(p.notes ?? "");
 
       if (p.entryType === "settlement") {

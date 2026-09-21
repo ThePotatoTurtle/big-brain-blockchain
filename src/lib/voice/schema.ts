@@ -152,3 +152,21 @@ export function withPayer(p: VoiceParsedEntry, userId: number): VoiceParsedEntry
   // several people paid, which the speech would have had to state.
   return { ...p, payers: [{ userId, amount: p.totalAmount }] };
 }
+
+/** Shown in a settlement's "Method" box when the speaker named no method. */
+export const DEFAULT_SETTLEMENT_METHOD = "Settlement";
+
+/**
+ * What belongs in the form's Item/Method box.
+ *
+ * The settlement form reuses the `item` field relabelled "Method", and requires
+ * it before it will submit. The parser correctly leaves it null when no method
+ * was spoken — it must not invent one — so the neutral fallback is applied here
+ * instead, at the UI boundary. Expenses get no fallback: there is no sensible
+ * default for "what was this", and a blank is the honest prompt to fill it in.
+ */
+export function formItemValue(p: VoiceParsedEntry): string {
+  const spoken = p.item?.trim();
+  if (spoken) return spoken;
+  return p.entryType === "settlement" ? DEFAULT_SETTLEMENT_METHOD : "";
+}
