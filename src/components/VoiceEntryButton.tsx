@@ -7,6 +7,7 @@ import {
   type VoiceParsedEntry,
   type VoiceEntryResponse,
 } from "@/lib/voice/schema";
+import { toWav } from "@/lib/voice/wav";
 
 /**
  * Mic capture for dictated entries.
@@ -42,6 +43,19 @@ function pickMimeType(): string | undefined {
 }
 
 const MAX_SECONDS = 60;
+
+/**
+ * Meter calibration, in dBFS.
+ *
+ * Speech is nowhere near full scale — conversational level into a phone mic sits
+ * around -35..-18 dBFS, so a linear peak meter barely leaves the left edge.
+ * Mapping this dB window onto the bar makes normal speech use its whole range,
+ * and because the scale is logarithmic it stays responsive when quiet.
+ */
+const METER_MIN_DB = -55; // below this reads as silence
+const METER_MAX_DB = -15; // at/above this the bar is full
+/** Per-frame decay, so the bar falls back smoothly instead of strobing. */
+const METER_DECAY = 0.82;
 
 type Phase =
   | "idle"
@@ -82,6 +96,13 @@ export default function VoiceEntryButton({
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const meterStreamRef = useRef<MediaStream | null>(null);
+  /**
+   * The MediaStreamAudioSourceNode must be retained. Only the analyser is
+   * reachable from the meter closure, so an un-referenced source node gets
+   * garbage-collected mid-recording, silently disconnecting the graph and
+   * pinning the meter at zero.
+   */
+  const meterSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -94,6 +115,8 @@ export default function VoiceEntryButton({
     tickRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    meterSourceRef.current?.disconnect();
+    meterSourceRef.current = null;
     meterStreamRef.current?.getTracks().forEach((t) => t.stop());
     meterStreamRef.current = null;
     audioCtxRef.current?.close().catch(() => {});
@@ -122,11 +145,22 @@ export default function VoiceEntryButton({
   }, [reveal.text]);
 
   const send = useCallback(
-    async (blob: Blob) => {
+    async (recorded: Blob) => {
       setPhase("transcribing");
       try {
+        // Normalise to WAV: the STT provider rejects the webm/opus and mp4/aac
+        // that MediaRecorder actually produces. If decoding fails, send the
+        // original rather than dropping the recording entirely.
+        let blob = recorded;
+        let ext = recorded.type.includes("mp4") ? "m4a" : "webm";
+        try {
+          blob = await toWav(recorded);
+          ext = "wav";
+        } catch {
+          console.warn("Could not transcode recording; uploading original");
+        }
+
         const body = new FormData();
-        const ext = blob.type.includes("mp4") ? "m4a" : "webm";
         body.append("audio", blob, `entry.${ext}`);
 
         const res = await fetch("/api/voice-entry", { method: "POST", body });
@@ -191,19 +225,34 @@ export default function VoiceEntryButton({
           .webkitAudioContext;
       const ctx = new Ctx();
       audioCtxRef.current = ctx;
+      // Safari (and Chrome under autoplay policy) hands back a SUSPENDED
+      // context. A suspended analyser reports pure silence, so the meter would
+      // sit at zero for the whole recording.
+      if (ctx.state === "suspended") await ctx.resume().catch(() => {});
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
       const meterTrack = stream.getAudioTracks()[0]?.clone();
       if (meterTrack) {
         meterStreamRef.current = new MediaStream([meterTrack]);
-        ctx.createMediaStreamSource(meterStreamRef.current).connect(analyser);
+        meterSourceRef.current = ctx.createMediaStreamSource(meterStreamRef.current);
+        meterSourceRef.current.connect(analyser);
       }
-      const buf = new Uint8Array(analyser.frequencyBinCount);
+      // Float samples, not getByteTimeDomainData: 8-bit data quantises to
+      // 1/128, which is an RMS noise floor around -53 dBFS — inside the meter's
+      // range, so a silent room would read about a quarter full.
+      const buf = new Float32Array(analyser.fftSize);
+      let smoothed = 0;
       const meter = () => {
-        analyser.getByteTimeDomainData(buf);
-        let peak = 0;
-        for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
-        setLevel(Math.min(1, peak / 90));
+        analyser.getFloatTimeDomainData(buf);
+        // RMS rather than peak: peak is dominated by single samples and jitters.
+        let sum = 0;
+        for (const x of buf) sum += x * x;
+        const rms = Math.sqrt(sum / buf.length);
+        const db = 20 * Math.log10(rms + 1e-8);
+        const norm = (db - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB);
+        // Rise immediately, fall gradually.
+        smoothed = Math.max(Math.min(1, Math.max(0, norm)), smoothed * METER_DECAY);
+        setLevel(smoothed);
         rafRef.current = requestAnimationFrame(meter);
       };
       meter();
@@ -268,10 +317,10 @@ export default function VoiceEntryButton({
         disabled={disabled || busy}
         aria-label={phase === "recording" ? "Stop recording" : "Dictate an entry"}
         aria-pressed={phase === "recording"}
-        className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium transition-colors disabled:opacity-40 ${
+        className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide ring-1 ring-inset transition-colors disabled:opacity-40 ${
           phase === "recording"
-            ? "bg-red-500/20 text-red-400"
-            : "bg-accent/10 text-accent hover:bg-accent/20"
+            ? "bg-red-500/25 text-red-300 ring-red-400/50"
+            : "bg-accent/20 text-accent ring-accent/40 hover:bg-accent/30"
         }`}
       >
         <MicIcon recording={phase === "recording"} />

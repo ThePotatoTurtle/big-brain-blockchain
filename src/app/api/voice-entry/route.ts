@@ -47,6 +47,15 @@ function audioFormat(mime: string): string | null {
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 const STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
 const STT_MODEL = "microsoft/mai-transcribe-2";
+/**
+ * Container fallback. mai-transcribe-2 is the most accurate on the non-streaming
+ * board but it only accepts a narrow set of containers — it 400s on the
+ * webm/opus and mp4/aac that MediaRecorder produces, which is why the client
+ * transcodes to WAV first. If that transcode ever fails (an unusual browser, a
+ * decode error), whisper-1 accepts the raw container, so a slightly less
+ * accurate transcript beats no transcript at all.
+ */
+const STT_FALLBACK_MODEL = "openai/whisper-1";
 
 type SttResult =
   | { ok: true; text: string; via: string }
@@ -68,38 +77,33 @@ async function transcribe(
 ): Promise<SttResult> {
   const auth = { Authorization: `Bearer ${key}` };
 
-  const fd = new FormData();
-  fd.append("model", STT_MODEL);
-  fd.append("language", "en");
-  fd.append("file", new Blob([new Uint8Array(bytes)], { type: mime }), filename);
+  const attempt = async (model: string) => {
+    const fd = new FormData();
+    fd.append("model", model);
+    fd.append("language", "en");
+    fd.append("file", new Blob([new Uint8Array(bytes)], { type: mime }), filename);
+    return fetch(STT_URL, { method: "POST", headers: auth, body: fd });
+  };
 
-  let res = await fetch(STT_URL, { method: "POST", headers: auth, body: fd });
+  let res = await attempt(STT_MODEL);
   if (res.ok) {
     const j = (await res.json()) as { text?: string };
-    return { ok: true, text: (j.text ?? "").trim(), via: "multipart" };
+    return { ok: true, text: (j.text ?? "").trim(), via: STT_MODEL };
   }
   const firstStatus = res.status;
-  const firstDetail = (await res.text()).slice(0, 600);
+  const firstDetail = (await res.text()).slice(0, 400);
 
-  res = await fetch(STT_URL, {
-    method: "POST",
-    headers: { ...auth, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: STT_MODEL,
-      input_audio: { data: bytes.toString("base64"), format },
-      language: "en",
-    }),
-  });
+  res = await attempt(STT_FALLBACK_MODEL);
   if (res.ok) {
     const j = (await res.json()) as { text?: string };
-    return { ok: true, text: (j.text ?? "").trim(), via: "json(after multipart " + firstStatus + ")" };
+    return { ok: true, text: (j.text ?? "").trim(), via: `${STT_FALLBACK_MODEL} (primary ${firstStatus})` };
   }
 
   return {
     ok: false,
     status: res.status,
     // Both upstream messages — these are error strings, not audio content.
-    detail: `multipart ${firstStatus}: ${firstDetail} || json ${res.status}: ${(await res.text()).slice(0, 600)}`,
+    detail: `${STT_MODEL} ${firstStatus}: ${firstDetail} || ${STT_FALLBACK_MODEL} ${res.status}: ${(await res.text()).slice(0, 400)}`,
     via: "both",
   };
 }
@@ -166,7 +170,7 @@ export async function POST(request: NextRequest) {
         { status: 502 }
       );
     }
-    if (result.via !== "multipart") {
+    if (result.via !== STT_MODEL) {
       console.warn(`Transcription fell back to ${result.via}`);
     }
     transcript = result.text;
