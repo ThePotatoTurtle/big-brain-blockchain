@@ -45,6 +45,24 @@ If the sentence is entirely third person ("Leon paid for dinner, split with Andy
 
 Today is ${todayIso} (${weekday}). Resolve relative dates against it: "today"→${todayIso}, "yesterday"→the day before, "last Friday"→the most recent past Friday, "the 3rd"→the 3rd of the current month if past or today, otherwise last month's. If no date is spoken at all, use ${todayIso}. Always output YYYY-MM-DD.
 
+## Item vs notes — they are independent fields
+
+\`item\` is the short label the entry is filed under: the venue, merchant, or thing bought — "Gyukatsu Motomura", "Uber", "groceries", "hotel". Fill it whenever anything in the speech identifies what the money was for. Keep it to a name, not a sentence.
+
+\`notes\` is for extra commentary that is NOT the label — a reason, caveat, or reminder.
+
+A trailing remark must NEVER pull the venue name out of \`item\`. If the speech names a place at the start and adds a comment at the end, the place stays in \`item\` and only the comment goes in \`notes\`:
+
+  "dinner at Gyukatsu Motomura ninety bucks split three ways, oh and remind Danny he still owes me for the tickets"
+    item  = "Gyukatsu Motomura"
+    notes = "Remind Danny he still owes for the tickets"
+
+  "Uber to the airport, thirty dollars, this was the expensive one because of surge"
+    item  = "Uber to the airport"
+    notes = "Expensive because of surge"
+
+Leave \`item\` null only when nothing identifies the purchase. Leave \`notes\` null when there is no extra commentary — most entries have none. Never put the same text in both.
+
 ## Entry type
 
 - "settlement" — one person handing money to another to square up. "I paid Danny fifty bucks", "Timmy sent me 20", "paying Andy back for the tickets". Settlements have a from, a to, and an amount. They are NOT split.

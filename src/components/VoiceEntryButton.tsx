@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { USERS } from "@/lib/users";
 import {
   resolveSpeaker,
+  needsPayerChoice,
+  withPayer,
   type VoiceParsedEntry,
   type VoiceEntryResponse,
 } from "@/lib/voice/schema";
@@ -89,7 +91,14 @@ export default function VoiceEntryButton({
     []
   );
 
-  const [pending, setPending] = useState<VoiceParsedEntry | null>(null);
+  /**
+   * The entry awaiting a person choice, plus which question is being asked.
+   * "speaker" resolves the "I" placeholder; "payer" fills a payer nobody named.
+   * Both can be needed from one utterance, so they're asked in turn.
+   */
+  const [pending, setPending] = useState<
+    { entry: VoiceParsedEntry; ask: "speaker" | "payer" } | null
+  >(null);
   const [error, setError] = useState("");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -176,9 +185,14 @@ export default function VoiceEntryButton({
         const payload = data as VoiceEntryResponse;
         showTranscript(payload.transcript);
 
+        // Ask before touching the form: "I"/"we" first, then a missing payer.
         if (payload.needsSpeakerIdentity) {
-          // "I"/"we" was used — ask who that is before touching the form.
-          setPending(payload.parsed);
+          setPending({ entry: payload.parsed, ask: "speaker" });
+          setPhase("identify");
+          return;
+        }
+        if (payload.needsPayer) {
+          setPending({ entry: payload.parsed, ask: "payer" });
           setPhase("identify");
           return;
         }
@@ -297,9 +311,18 @@ export default function VoiceEntryButton({
     }
   }, [send, stop, teardown, showTranscript]);
 
-  const chooseSpeaker = (userId: number) => {
+  const choosePerson = (userId: number) => {
     if (!pending) return;
-    const resolved = resolveSpeaker(pending, userId);
+    const resolved =
+      pending.ask === "speaker"
+        ? resolveSpeaker(pending.entry, userId)
+        : withPayer(pending.entry, userId);
+
+    // Resolving "I" can itself supply the payer; only ask again if it didn't.
+    if (pending.ask === "speaker" && needsPayerChoice(resolved)) {
+      setPending({ entry: resolved, ask: "payer" });
+      return;
+    }
     setPending(null);
     setPhase("idle");
     onParsed(resolved, transcript);
@@ -368,14 +391,16 @@ export default function VoiceEntryButton({
           {phase === "identify" && (
             <div className="mt-3">
               <p className="text-[11px] text-muted mb-2">
-                You said &ldquo;I&rdquo; — who&rsquo;s speaking?
+                {pending?.ask === "payer"
+                  ? "Who paid?"
+                  : "You said “I” — who’s speaking?"}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {USERS.map((u) => (
                   <button
                     key={u.id}
                     type="button"
-                    onClick={() => chooseSpeaker(u.id)}
+                    onClick={() => choosePerson(u.id)}
                     className="px-2.5 py-1 rounded-full text-xs font-medium transition-opacity hover:opacity-80"
                     style={{ backgroundColor: u.color + "20", color: u.color }}
                   >

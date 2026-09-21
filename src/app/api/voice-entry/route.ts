@@ -4,6 +4,7 @@ import { todayString } from "@/lib/utils";
 import { buildVoiceSystemPrompt, VOICE_ENTRY_JSON_SCHEMA } from "@/lib/voice/prompt";
 import {
   hasSpeakerRef,
+  needsPayerChoice,
   type VoiceParsedEntry,
   type VoiceEntryResponse,
 } from "@/lib/voice/schema";
@@ -195,7 +196,7 @@ export async function POST(request: NextRequest) {
     const today = todayString();
 
     const message = await client.messages.create({
-      model: "claude-opus-5",
+      model: "claude-sonnet-5",
       max_tokens: 4096,
       // The system prompt is long and byte-identical across calls except for
       // the date, so it caches cleanly and costs ~nothing after the first call.
@@ -206,8 +207,8 @@ export async function POST(request: NextRequest) {
           cache_control: { type: "ephemeral" },
         },
       ],
-      // Thinking stays on (Opus 5 misbehaves with it disabled) but at low
-      // effort — this is bounded extraction, and the user is waiting.
+      // Adaptive thinking at low effort: this is bounded extraction and the
+      // user is waiting on it.
       thinking: { type: "adaptive" },
       output_config: {
         effort: "low",
@@ -243,6 +244,7 @@ export async function POST(request: NextRequest) {
       transcript,
       parsed,
       needsSpeakerIdentity: hasSpeakerRef(parsed),
+      needsPayer: needsPayerChoice(parsed),
     };
     return NextResponse.json(response);
   } catch (err) {

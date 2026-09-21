@@ -77,6 +77,13 @@ export interface VoiceEntryResponse {
   parsed: VoiceParsedEntry;
   /** True when any field resolved to SPEAKER_REF and the UI must ask who "I" is. */
   needsSpeakerIdentity: boolean;
+  /**
+   * True when nobody was named as having paid. Distinct from the SPEAKER case:
+   * the speech may be entirely third-person and still not say who paid. The
+   * payer is mandatory on the form, so the UI asks rather than filling a blank
+   * the user then has to notice.
+   */
+  needsPayer: boolean;
 }
 
 /** Every place a UserRef can appear, for SPEAKER_REF detection and substitution. */
@@ -127,4 +134,21 @@ export function resolveSpeaker(
     settlementFrom: p.settlementFrom === null ? null : sub(p.settlementFrom),
     settlementTo: p.settlementTo === null ? null : sub(p.settlementTo),
   };
+}
+
+/**
+ * True when the entry names nobody as payer. Checked AFTER speaker resolution,
+ * since "I paid" resolves to a real person and no longer counts as missing.
+ */
+export function needsPayerChoice(p: VoiceParsedEntry): boolean {
+  if (p.entryType === "settlement") return p.settlementFrom === null;
+  return p.payers.filter((x) => x.userId !== 0).length === 0;
+}
+
+/** Set the payer the UI asked for, without disturbing anything else. */
+export function withPayer(p: VoiceParsedEntry, userId: number): VoiceParsedEntry {
+  if (p.entryType === "settlement") return { ...p, settlementFrom: userId };
+  // A sole payer covers the whole total; per-payer amounts only matter when
+  // several people paid, which the speech would have had to state.
+  return { ...p, payers: [{ userId, amount: p.totalAmount }] };
 }
