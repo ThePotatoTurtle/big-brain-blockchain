@@ -1,4 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Big Brain Blockchain
+
+A shared expense ledger for a fixed group of seven friends. Nobody hands anybody cash — purchases get logged, split, and netted off, and the running balances tell you who owes whom.
+
+Despite the name, there is no blockchain. The only thing it borrows is the idea of an append-only shared ledger everyone can see.
+
+## How it works
+
+Every transaction stores one `TransactionLine` per person holding their **net** position — what they paid minus what they owe. Those lines always sum to zero, so balances are just a sum over the lines and the books can't silently drift. Amounts are integer minor units (cents for CAD, whole yen for JPY), never floats.
+
+## What's in it
+
+**Entries** — Expenses split evenly, by explicit per-person amounts, or in *restaurant mode*, which scales each person's pre-tax subtotal up to a tax- and tip-inclusive total. Settlements record a straight transfer between two people. Negative totals are supported for cashback rebates and refunds. Multiple payers on one expense work too.
+
+**Receipt scanning** — Photograph a receipt and Claude extracts the line items, tax, and total. Assign each item to whoever ate it and the split is computed pro-rata.
+
+**Voice entry** — Dictate an entry and it fills the form: *"Leon paid ninety at Gyukatsu Motomura, split three ways with Andy and Calvin."* Audio is transcribed via OpenRouter, then parsed by Claude into dates, amounts, people, and splits. It resolves mangled names against the roster, asks who "I" is when you use first person, and flags anything it wasn't sure about. Nothing is ever submitted automatically — the form is filled and you review it.
+
+**Trips** — Self-contained sub-ledgers for a holiday, with their own members, categories, payment methods, and currencies. Spend in JPY and CAD side by side, convert foreign balances at a rate you supply, then transfer the settled total into the main ledger in one move. Trip configs are plain TypeScript files, so adding a new trip is a copy-paste.
+
+**Charts and history** — Balance history per person over time, with a symmetric-log axis option so one large balance doesn't flatten everyone else into a line.
+
+**Discord notifications** — Every add, edit, and delete posts to a webhook. Large transactions also get a rendered balance-history chart attached as a PNG.
+
+Plus receipt/attachment uploads, nine colour themes, and mobile-first layouts throughout.
+
+## Stack
+
+Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · Prisma 7 on Neon Postgres · Recharts · Vercel Blob · Claude and OpenRouter for the AI features · deployed on Vercel.
 
 ## Environment variables
 
@@ -15,37 +43,23 @@ Set these in `.env` locally and under **Vercel → Project → Settings → Envi
 
 Voice entry needs **both** `OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY` — transcription and parsing are separate hops. Neither key reaches the browser; both are read server-side in the API routes only. Recorded audio is held in memory for the length of the request and never written to Blob storage, the database, or logs.
 
-## Getting Started
-
-First, run the development server:
+## Getting started
 
 ```bash
+npm install
+npx prisma generate
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Testing the voice parser
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Most of the voice feature's behaviour lives in a system prompt, where a one-line edit can silently change something unrelated. There's an eval suite for exactly that:
 
-## Learn More
+```bash
+npm run voice-eval              # all 48 cases (~$0.20 in API calls)
+npm run voice-eval -- item      # just the item/notes and item/method groups
+```
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Run it after **any** change to `src/lib/voice/prompt.ts`. It exits non-zero on failure.
