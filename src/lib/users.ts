@@ -4,7 +4,8 @@ export const USERS = [
   { id: 3, name: "Danny", email: "danny@example.com", color: "#66ffcc" },
   { id: 4, name: "Henry", email: "henry@example.com", color: "#EC4899" },
   { id: 5, name: "Jayden", email: "jayden@example.com", color: "#F59E0B" },
-  { id: 6, name: "Leon", email: "leonlin773@gmail.com", color: "#008000" },
+  // Real addresses are deliberately not kept here — this repo is public.
+  { id: 6, name: "Leon", email: null, color: "#008000" },
   { id: 7, name: "Timmy", email: "timmy@example.com", color: "#000000" },
 ] as const;
 
