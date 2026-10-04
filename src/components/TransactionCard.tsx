@@ -29,8 +29,15 @@ export default function TransactionCard({
   // Currency-aware amount formatting (JPY = whole yen; default CAD cents)
   const fmt = (n: number) => fmtCur(n, t.currency);
 
-  // For expenses: find all payers (positive amount lines)
-  const payerLines = t.lines.filter((l) => l.amount > 0);
+  // For expenses: prefer the stored payers. Net lines alone miss anyone who
+  // paid less than their share (their net is negative). Older entries have no
+  // payersJson, so fall back to positive lines for those.
+  const payerLines = t.payers?.length
+    ? t.payers.map((p) => {
+        const user = getUserById(p.userId);
+        return { userId: p.userId, userName: user?.name ?? "?", color: user?.color ?? "#6B7280", amount: p.amountCents };
+      })
+    : t.lines.filter((l) => l.amount > 0);
 
   // Currency conversions: the per-user lines are balance adjustments, not a
   // real payment, so the "X paid Y" summary line makes no sense for them.
