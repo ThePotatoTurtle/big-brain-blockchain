@@ -44,7 +44,32 @@ function initEditForm(t: TransactionWithDetails): EditFormState {
     };
   }
 
-  // Expense: reconstruct payers and shares from lines + totalAmountCents
+  // Expense with stored payers/shares: use them as-is. Reconstructing from net
+  // lines drops anyone who paid less than their share.
+  if (t.payers?.length && t.shares?.length) {
+    const storedShares = new Map(t.shares.map((s) => [s.userId, s.amountCents]));
+    return {
+      type: "expense",
+      date: t.date,
+      item: t.item,
+      notes: t.notes ?? "",
+      payers: t.payers.map((p) => ({
+        id: `ep-${editPayerIdCounter++}`,
+        userId: p.userId,
+        amount: (p.amountCents / 100).toFixed(2),
+      })),
+      totalAmount: ((t.totalAmountCents ?? t.payers.reduce((s, p) => s + p.amountCents, 0)) / 100).toFixed(2),
+      shares: USERS.map((u) => {
+        const cents = storedShares.get(u.id);
+        return { userId: u.id, included: cents !== undefined, amount: cents !== undefined ? (cents / 100).toFixed(2) : "" };
+      }),
+      fromUserId: 0,
+      toUserId: 0,
+      settlementAmount: "",
+    };
+  }
+
+  // Older expense without stored payers: reconstruct from lines + totalAmountCents
   const payerLines = t.lines.filter((l) => l.amount > 0);
   const total = t.totalAmountCents ?? payerLines.reduce((s, l) => s + l.amount, 0);
 

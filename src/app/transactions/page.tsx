@@ -66,6 +66,14 @@ async function getTransactions() {
       fileName: a.fileName,
     })),
     createdAt: t.createdAt.toISOString(),
+    // Keep in sync with GET /api/transactions, which serves page 2+ and refreshes
+    currency: t.currency,
+    paymentMethod: t.paymentMethod,
+    category: t.category,
+    shares: (t.sharesJson as { userId: number; amountCents: number }[] | null) ?? null,
+    payers: (t.payersJson as { userId: number; amountCents: number }[] | null) ?? null,
+    conversionBatchId: t.conversionBatchId,
+    transfer: (t.transferJson as TransactionWithDetails["transfer"]) ?? null,
   }));
 
   return { transactions: formatted, total };
