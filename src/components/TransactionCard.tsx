@@ -32,7 +32,8 @@ export default function TransactionCard({
   // For expenses: prefer the stored payers. Net lines alone miss anyone who
   // paid less than their share (their net is negative). Older entries have no
   // payersJson, so fall back to positive lines for those.
-  const payerLines = t.payers?.length
+  const hasStoredPayers = !!t.payers?.length;
+  const payerLines = hasStoredPayers && t.payers
     ? t.payers.map((p) => {
         const user = getUserById(p.userId);
         return { userId: p.userId, userName: user?.name ?? "?", color: user?.color ?? "#6B7280", amount: p.amountCents };
@@ -146,7 +147,20 @@ export default function TransactionCard({
               <span className="font-mono">{fmt(t.totalAmountCents ?? 0)}</span>
             </div>
           )}
-          {!isConversion && !isRebate && payerLines.length > 0 && (
+          {!isConversion && !isRebate && hasStoredPayers && (
+            <div className="text-xs text-muted mb-1">
+              {payerLines.map((l, i) => (
+                <span key={l.userId}>
+                  {i > 0 && "; "}
+                  <span style={{ color: l.color }} className="font-medium">
+                    {l.userName}
+                  </span>{" "}
+                  paid <span className="font-mono">{fmt(l.amount)}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {!isConversion && !isRebate && !hasStoredPayers && payerLines.length > 0 && (
             <div className="text-xs text-muted mb-1">
               {payerLines.map((l, i) => (
                 <span key={l.userId}>
