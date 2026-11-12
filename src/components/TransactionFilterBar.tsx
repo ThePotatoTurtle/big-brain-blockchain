@@ -45,10 +45,10 @@ export default function TransactionFilterBar({
   total: number;
   loading: boolean;
 }) {
-  // "Custom" with no dates picked yet matches no filter value, so track it here
+  // Choosing "Custom" keeps the current dates (which may still equal a preset,
+  // or be empty), so the choice can't be derived from the filters alone
   const [customOpen, setCustomOpen] = useState(matchPreset(filters) === "custom");
-  const matched = matchPreset(filters);
-  const preset: DatePreset = matched === "all" && customOpen ? "custom" : matched;
+  const preset: DatePreset = customOpen ? "custom" : matchPreset(filters);
   const active = hasActiveFilters(filters);
 
   return (

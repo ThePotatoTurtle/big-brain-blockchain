@@ -14,7 +14,7 @@ export default function BalanceDisplay({ balances }: { balances: Balance[] }) {
       <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">
         Balances
       </h2>
-      <div className="space-y-1">
+      <div>
         {balances.map((b) => {
           const pct = Math.abs(b.balanceCents) / maxAbs;
           const isNeg = b.balanceCents < 0;
@@ -26,7 +26,7 @@ export default function BalanceDisplay({ balances }: { balances: Balance[] }) {
               type="button"
               onClick={() => setStatementFor(b)}
               aria-label={`Show ${b.name}'s statement`}
-              className="w-full flex items-center gap-3 text-left rounded-md py-0.5 hover:bg-background/60 transition-colors"
+              className="w-[calc(100%+1.5rem)] -mx-3 px-3 py-1.5 flex items-center gap-3 text-left rounded-lg hover:bg-background/60 transition-colors"
             >
               {/* Color dot */}
               <div
