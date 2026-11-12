@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { TransactionWithDetails } from "@/lib/types";
 import TransactionCard from "./TransactionCard";
 import EditReceiptModal from "./EditReceiptModal";
@@ -8,6 +8,8 @@ import { centsToDisplay, dollarsToCents, splitEvenly } from "@/lib/utils";
 import { USERS } from "@/lib/users";
 import { isReceiptNotes } from "@/lib/receipt";
 import AmountChips from "./AmountChips";
+import TransactionFilterBar from "./TransactionFilterBar";
+import { filtersToQuery, hasActiveFilters, type TransactionFilters } from "@/lib/transaction-filters";
 
 interface EditFormState {
   type: "expense" | "settlement";
@@ -171,15 +173,21 @@ function initEditForm(t: TransactionWithDetails): EditFormState {
 export default function TransactionList({
   initialTransactions,
   initialTotal,
+  initialFilters = {},
 }: {
   initialTransactions: TransactionWithDetails[];
   initialTotal: number;
+  initialFilters?: TransactionFilters;
 }) {
   const [transactions, setTransactions] =
     useState<TransactionWithDetails[]>(initialTransactions);
-  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(initialTotal);
   const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState<TransactionFilters>(initialFilters);
+  const [searching, setSearching] = useState(false);
+  // Bumped on every list replacement so a slower, older response is dropped
+  const requestSeq = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TransactionWithDetails | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -192,22 +200,70 @@ export default function TransactionList({
 
   const hasMore = transactions.length < total;
 
+  const fetchList = useCallback(
+    async (f: TransactionFilters, offset: number, limit: number) => {
+      const qs = filtersToQuery(f);
+      const res = await fetch(`/api/transactions?offset=${offset}&limit=${limit}${qs ? `&${qs}` : ""}`);
+      if (!res.ok) throw new Error("Failed to fetch transactions");
+      return (await res.json()) as { transactions: TransactionWithDetails[]; total: number };
+    },
+    []
+  );
+
+  // Replace the list from the top (filter change, or refresh after an edit)
+  const reload = useCallback(
+    async (f: TransactionFilters, limit = 20) => {
+      const seq = ++requestSeq.current;
+      setSearching(true);
+      try {
+        const data = await fetchList(f, 0, limit);
+        if (seq !== requestSeq.current) return;
+        setTransactions(data.transactions);
+        setTotal(data.total);
+      } catch (err) {
+        console.error("Failed to load transactions:", err);
+      } finally {
+        if (seq === requestSeq.current) setSearching(false);
+      }
+    },
+    [fetchList]
+  );
+
+  const handleFiltersChange = useCallback(
+    (next: TransactionFilters) => {
+      setFilters(next);
+      // Keep the URL shareable without triggering a server re-render
+      const qs = filtersToQuery(next);
+      window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => reload(next), 300);
+    },
+    [reload]
+  );
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
+
   const loadMore = useCallback(async () => {
-    if (loading || !hasMore) return;
+    if (loading || searching || !hasMore) return;
+    const seq = requestSeq.current;
     setLoading(true);
     try {
-      const nextPage = page + 1;
-      const res = await fetch(`/api/transactions?page=${nextPage}&limit=20`);
-      const data = await res.json();
-      setTransactions((prev) => [...prev, ...data.transactions]);
+      // Offset by what's loaded, so it stays correct after a refresh or delete
+      const data = await fetchList(filters, transactions.length, 20);
+      if (seq !== requestSeq.current) return;
+      setTransactions((prev) => {
+        const seen = new Set(prev.map((t) => t.id));
+        return [...prev, ...data.transactions.filter((t) => !seen.has(t.id))];
+      });
       setTotal(data.total);
-      setPage(nextPage);
     } catch (err) {
       console.error("Failed to load more:", err);
     } finally {
       setLoading(false);
     }
-  }, [page, loading, hasMore]);
+  }, [loading, searching, hasMore, fetchList, filters, transactions.length]);
 
   const handleDeleteClick = useCallback((id: number) => {
     setTransactions((prev) => {
@@ -307,11 +363,7 @@ export default function TransactionList({
       }
 
       // Refresh the full list to get updated data from server
-      const refreshRes = await fetch(`/api/transactions?page=1&limit=${Math.max(transactions.length, 20)}`);
-      const refreshData = await refreshRes.json();
-      setTransactions(refreshData.transactions);
-      setTotal(refreshData.total);
-      setPage(1);
+      await reload(filters, Math.max(transactions.length, 20));
 
       setEditTarget(null);
       setEditForm(null);
@@ -320,7 +372,7 @@ export default function TransactionList({
     } finally {
       setEditSubmitting(false);
     }
-  }, [editTarget, editForm, transactions.length]);
+  }, [editTarget, editForm, transactions.length, reload, filters]);
 
   // Intersection observer for infinite scroll
   useEffect(() => {
@@ -390,20 +442,31 @@ export default function TransactionList({
     });
   };
 
-  if (transactions.length === 0) {
-    return (
-      <div className="bg-card rounded-xl p-8 text-center">
-        <p className="text-muted">No transactions yet.</p>
-        <p className="text-xs text-muted mt-1">
-          Add an expense or settlement from the home page.
-        </p>
-      </div>
-    );
-  }
+  const filtersActive = hasActiveFilters(filters);
 
   return (
     <>
       <div className="space-y-3">
+        <TransactionFilterBar
+          filters={filters}
+          onChange={handleFiltersChange}
+          total={total}
+          loading={searching}
+        />
+
+        {transactions.length === 0 && !searching && (
+          <div className="bg-card rounded-xl p-8 text-center">
+            <p className="text-muted">
+              {filtersActive ? "No transactions match these filters." : "No transactions yet."}
+            </p>
+            <p className="text-xs text-muted mt-1">
+              {filtersActive
+                ? "Try a different search or clear the filters."
+                : "Add an expense or settlement from the home page."}
+            </p>
+          </div>
+        )}
+
         {transactions.map((t) => (
           <TransactionCard key={t.id} transaction={t} onDelete={handleDeleteClick} onEdit={handleEditClick} />
         ))}
@@ -468,9 +531,10 @@ export default function TransactionList({
         <EditReceiptModal
           transaction={receiptEditTarget}
           onClose={() => setReceiptEditTarget(null)}
-          onSaved={(refreshed) => {
-            setTransactions(refreshed);
-            setTotal(refreshed.length);
+          onSaved={() => {
+            // Reload here rather than use the modal's unfiltered list, so
+            // active filters and the true total are kept
+            reload(filters, Math.max(transactions.length, 20));
             setReceiptEditTarget(null);
           }}
         />

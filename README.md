@@ -20,7 +20,9 @@ Each transaction stores one row per person holding their net position, meaning w
 
 **Charts.** Balance history per person. There's a log scale option, because once someone is a few thousand ahead a linear axis squashes everyone else flat.
 
-**Discord.** Adds, edits and deletes all post to a webhook. Anything over $100 also gets a balance chart rendered and attached as an image.
+**Search and statements.** The transactions page can be searched by item or notes and filtered by person, type and date. Tap a name on the home page to see every entry that moved that person's balance, with a running total.
+
+**Discord.** Adds, edits and deletes all post to a webhook. Anything over $100 also gets a balance chart rendered and attached as an image. On the 1st of each month a digest of the previous month goes out too: total spent, biggest expense, who moved the most.
 
 There's also file attachments on entries, a few colour themes, and the whole thing is built mobile first.
 
@@ -40,6 +42,8 @@ Set these in `.env` locally, and under **Vercel → Project → Settings → Env
 | `RESEND_API_KEY` | Email | |
 | `ANTHROPIC_API_KEY` | Receipt scanning, voice-entry parsing | Both call `claude-sonnet-5` |
 | `OPENROUTER_API_KEY` | Voice entry (speech-to-text) | Transcription via `microsoft/mai-transcribe-2` |
+| `DISCORD_WEBHOOK_URL` | Discord notifications, monthly digest | |
+| `CRON_SECRET` | Monthly digest | Optional. When set, only Vercel's cron can trigger a post |
 
 Voice entry needs both `OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY`, since transcribing and parsing are separate calls. Neither key reaches the browser. Both are read server side in the API routes only. Recorded audio stays in memory for the length of the request and is never written to Blob storage, the database, or the logs.
 

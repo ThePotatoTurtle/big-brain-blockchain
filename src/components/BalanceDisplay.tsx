@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import type { Balance } from "@/lib/types";
 import { centsToDisplay } from "@/lib/utils";
+import PersonStatementPanel from "./PersonStatementPanel";
 
 export default function BalanceDisplay({ balances }: { balances: Balance[] }) {
+  const [statementFor, setStatementFor] = useState<Balance | null>(null);
   const maxAbs = Math.max(...balances.map((b) => Math.abs(b.balanceCents)), 1);
 
   return (
@@ -11,14 +14,20 @@ export default function BalanceDisplay({ balances }: { balances: Balance[] }) {
       <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-4">
         Balances
       </h2>
-      <div className="space-y-2">
+      <div className="space-y-1">
         {balances.map((b) => {
           const pct = Math.abs(b.balanceCents) / maxAbs;
           const isNeg = b.balanceCents < 0;
           const isZero = b.balanceCents === 0;
 
           return (
-            <div key={b.userId} className="flex items-center gap-3">
+            <button
+              key={b.userId}
+              type="button"
+              onClick={() => setStatementFor(b)}
+              aria-label={`Show ${b.name}'s statement`}
+              className="w-full flex items-center gap-3 text-left rounded-md py-0.5 hover:bg-background/60 transition-colors"
+            >
               {/* Color dot */}
               <div
                 className="w-3 h-3 rounded-full shrink-0"
@@ -59,10 +68,13 @@ export default function BalanceDisplay({ balances }: { balances: Balance[] }) {
                 {isNeg ? "" : isZero ? "" : "+"}
                 {centsToDisplay(b.balanceCents)}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
+      {statementFor && (
+        <PersonStatementPanel person={statementFor} onClose={() => setStatementFor(null)} />
+      )}
     </div>
   );
 }

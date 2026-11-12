@@ -9,11 +9,9 @@ import {
 import { sendExpenseNotifications } from "@/lib/email";
 import { sendDiscordNotification } from "@/lib/discord";
 import { getTripBySlug } from "@/lib/trips";
-import type {
-  CreateTransactionRequest,
-  TransactionWithDetails,
-  TransactionLineDetail,
-} from "@/lib/types";
+import { getTransactionsPage } from "@/lib/transaction-query";
+import { filtersFromParams } from "@/lib/transaction-filters";
+import type { CreateTransactionRequest } from "@/lib/types";
 
 /**
  * Validate trip fields on a create/update request. Returns an error string,
@@ -65,83 +63,22 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get("page") ?? "1");
   const limit = parseInt(searchParams.get("limit") ?? "20");
-  const skip = (page - 1) * limit;
+  // offset (rows already loaded) takes precedence over page when given
+  const offset = parseInt(searchParams.get("offset") ?? "");
+  const skip = Number.isFinite(offset) && offset >= 0 ? offset : (page - 1) * limit;
   // trip=<slug> returns that trip's entries; otherwise main ledger only
   const tripId = searchParams.get("trip");
 
   try {
-    // Workaround: Prisma 7 PrismaPg adapter is extremely slow with concurrent queries
-    // and multiple includes. Query sequentially and merge in application code.
-    const where = { tripId: tripId ?? null };
-    const baseTransactions = await prisma.transaction.findMany({
-      where,
-      include: { createdBy: true },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    const { transactions, total } = await getTransactionsPage({
+      tripId: tripId ?? null,
       skip,
       take: limit,
+      filters: filtersFromParams(searchParams),
     });
-    const total = await prisma.transaction.count({ where });
-
-    let formatted: TransactionWithDetails[] = [];
-    if (baseTransactions.length > 0) {
-      const txIds = baseTransactions.map((t) => t.id);
-      const lines = await prisma.transactionLine.findMany({
-        where: { transactionId: { in: txIds } },
-        include: { user: true },
-      });
-      const attachments = await prisma.attachment.findMany({
-        where: { transactionId: { in: txIds } },
-      });
-
-      const linesMap = new Map<number, typeof lines>();
-      for (const l of lines) {
-        const arr = linesMap.get(l.transactionId) ?? [];
-        arr.push(l);
-        linesMap.set(l.transactionId, arr);
-      }
-      const attachMap = new Map<number, typeof attachments>();
-      for (const a of attachments) {
-        const arr = attachMap.get(a.transactionId) ?? [];
-        arr.push(a);
-        attachMap.set(a.transactionId, arr);
-      }
-
-      formatted = baseTransactions.map((t) => ({
-        id: t.id,
-        date: t.date.toISOString().split("T")[0],
-        type: t.type as "expense" | "settlement",
-        item: t.item,
-        notes: t.notes,
-        totalAmountCents: t.totalAmountCents,
-        status: t.status as "pending" | "confirmed",
-        createdBy: { id: t.createdBy.id, name: t.createdBy.name },
-        lines: (linesMap.get(t.id) ?? []).map(
-          (l): TransactionLineDetail => ({
-            userId: l.user.id,
-            userName: l.user.name,
-            amount: l.amount,
-            color: getUserById(l.user.id)?.color ?? "#6B7280",
-          })
-        ),
-        attachments: (attachMap.get(t.id) ?? []).map((a) => ({
-          id: a.id,
-          fileUrl: a.fileUrl,
-          fileName: a.fileName,
-        })),
-        createdAt: t.createdAt.toISOString(),
-        tripId: t.tripId,
-        currency: t.currency,
-        paymentMethod: t.paymentMethod,
-        category: t.category,
-        shares: (t.sharesJson as { userId: number; amountCents: number }[] | null) ?? null,
-        payers: (t.payersJson as { userId: number; amountCents: number }[] | null) ?? null,
-        conversionBatchId: t.conversionBatchId,
-        transfer: (t.transferJson as TransactionWithDetails["transfer"]) ?? null,
-      }));
-    }
 
     return NextResponse.json({
-      transactions: formatted,
+      transactions,
       total,
       page,
       totalPages: Math.ceil(total / limit),

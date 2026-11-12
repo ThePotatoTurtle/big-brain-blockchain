@@ -1,5 +1,6 @@
 import { getUserById } from "@/lib/users";
 import { generateBalanceGraphPng, LARGE_TX_THRESHOLD_CENTS } from "@/lib/balance-graph";
+import type { MonthlyDigest } from "@/lib/digest";
 
 const GRAPH_FILENAME = "balance.png";
 /** Delay before the graph message so it reliably lands after the main one. */
@@ -442,37 +443,136 @@ export async function sendDiscordNotification(
     const graphPng = await maybeBalanceGraph(data);
     if (!graphPng) return;
 
-    // Discord orders by receipt time; a brief gap guarantees the chart lands
-    // after the transaction message rather than racing ahead of it.
-    await new Promise((r) => setTimeout(r, GRAPH_FOLLOWUP_DELAY_MS));
-
-    const graphPayload = JSON.stringify({
-      username: "Big Brain Blockchain",
-      embeds: [
-        {
-          title: `📈 Balance history — ${"item" in data ? data.item : ""}`,
-          color: embed.color,
-          fields: [],
-          timestamp: new Date().toISOString(),
-          image: { url: `attachment://${GRAPH_FILENAME}` },
-        },
-      ],
-    });
-
-    await postWebhook(url, () => {
-      // Fresh body per attempt so retries can't reuse a consumed stream
-      const form = new FormData();
-      form.append("payload_json", graphPayload);
-      form.append(
-        "files[0]",
-        new Blob([new Uint8Array(graphPng)], { type: "image/png" }),
-        GRAPH_FILENAME
-      );
-      // No explicit Content-Type — fetch adds the multipart boundary itself
-      return { method: "POST", body: form };
-    });
+    await postGraphMessage(
+      url,
+      `📈 Balance history — ${"item" in data ? data.item : ""}`,
+      embed.color,
+      graphPng
+    );
   } catch (err) {
     console.error("Balance graph message failed:", err);
+  }
+}
+
+/** Post a balance chart as its own follow-up message, after a short gap. */
+async function postGraphMessage(
+  url: string,
+  title: string,
+  color: number,
+  graphPng: Buffer
+): Promise<void> {
+  // Discord orders by receipt time; a brief gap guarantees the chart lands
+  // after the message it follows rather than racing ahead of it.
+  await new Promise((r) => setTimeout(r, GRAPH_FOLLOWUP_DELAY_MS));
+
+  const graphPayload = JSON.stringify({
+    username: "Big Brain Blockchain",
+    embeds: [
+      {
+        title,
+        color,
+        fields: [],
+        timestamp: new Date().toISOString(),
+        image: { url: `attachment://${GRAPH_FILENAME}` },
+      },
+    ],
+  });
+
+  await postWebhook(url, () => {
+    // Fresh body per attempt so retries can't reuse a consumed stream
+    const form = new FormData();
+    form.append("payload_json", graphPayload);
+    form.append(
+      "files[0]",
+      new Blob([new Uint8Array(graphPng)], { type: "image/png" }),
+      GRAPH_FILENAME
+    );
+    // No explicit Content-Type — fetch adds the multipart boundary itself
+    return { method: "POST", body: form };
+  });
+}
+
+const DIGEST_COLOR = 0x8b5cf6; // violet, distinct from per-entry embeds
+
+function buildDigestEmbed(d: MonthlyDigest): DiscordEmbed {
+  const name = (userId: number) => getUserById(userId)?.name ?? "?";
+  const signedList = (rows: { userId: number; amountCents: number }[]) =>
+    rows
+      .map((r) => `${name(r.userId)}: ${r.amountCents > 0 ? "+" : ""}${moneySigned(r.amountCents)}`)
+      .join("\n");
+
+  const entries = [`${d.expenseCount} ${d.expenseCount === 1 ? "expense" : "expenses"}`];
+  if (d.settlementCount > 0) {
+    entries.push(
+      `${d.settlementCount} ${d.settlementCount === 1 ? "settlement" : "settlements"} (${money(d.settledCents)})`
+    );
+  }
+
+  const fields = [
+    { name: "Spent", value: moneySigned(d.spentCents), inline: true },
+    { name: "Entries", value: entries.join("\n"), inline: true },
+  ];
+  if (d.biggest) {
+    fields.push({
+      name: "Biggest expense",
+      value: truncate(
+        `${d.biggest.item}: ${money(d.biggest.amountCents)} (${d.biggest.payerIds.map(name).join(" & ")})`,
+        1024
+      ),
+      inline: false,
+    });
+  }
+  if (d.topSpender) {
+    fields.push({
+      name: "Biggest spender",
+      value: `${name(d.topSpender.userId)}: ${money(d.topSpender.amountCents)}`,
+      inline: false,
+    });
+  }
+  if (d.tripsClosed.length > 0) {
+    fields.push({ name: "Trips closed", value: truncate(d.tripsClosed.join(", "), 1024), inline: false });
+  }
+  if (d.changes.length > 0) {
+    fields.push({ name: "Balance changes", value: signedList(d.changes), inline: true });
+  }
+  fields.push({ name: "Balances at month end", value: signedList(d.balances), inline: true });
+
+  return {
+    title: `🗓️ ${d.label} in review`,
+    color: DIGEST_COLOR,
+    fields,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/** Post the monthly digest, then a balance chart for everyone whose balance moved. */
+export async function sendMonthlyDigest(digest: MonthlyDigest): Promise<void> {
+  const url = process.env.DISCORD_WEBHOOK_URL;
+  if (!url) {
+    console.warn("DISCORD_WEBHOOK_URL not set, skipping monthly digest");
+    return;
+  }
+
+  const payloadJson = JSON.stringify({
+    username: "Big Brain Blockchain",
+    embeds: [buildDigestEmbed(digest)],
+  });
+  await postWebhook(url, () => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payloadJson,
+  }));
+
+  // Isolated so a chart failure never affects the digest above
+  try {
+    const graphPng = await generateBalanceGraphPng(
+      digest.changes.map((c) => c.userId),
+      digest.endDate
+    );
+    if (!graphPng) return;
+    await postGraphMessage(url, `📈 Balance history — ${digest.label}`, DIGEST_COLOR, graphPng);
+  } catch (err) {
+    console.error("Monthly digest graph failed:", err);
   }
 }
 

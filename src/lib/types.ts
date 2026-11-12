@@ -98,3 +98,22 @@ export interface CreateSettlementRequest extends TripEntryFields {
 export type CreateTransactionRequest =
   | ({ type: "expense" } & CreateExpenseRequest)
   | ({ type: "settlement" } & CreateSettlementRequest);
+
+/** One entry on a person's statement: what it did to their balance. */
+export interface StatementEntry {
+  id: number; // transaction id
+  date: string;
+  item: string;
+  type: "expense" | "settlement";
+  isTransfer: boolean; // trip-close transfer into the main ledger
+  changeCents: number; // their net line on this entry
+  balanceAfterCents: number; // their running balance after it
+}
+
+export interface PersonStatement {
+  userId: number;
+  balanceCents: number;
+  creditsCents: number; // sum of positive changes
+  debitsCents: number; // sum of negative changes (≤ 0)
+  entries: StatementEntry[]; // newest first
+}
